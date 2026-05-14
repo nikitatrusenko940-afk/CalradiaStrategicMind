@@ -1,0 +1,14 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.cache
+*.log
+TaleWorlds.*.dll
+MountAndBlade.*.dll
+Module/bin/
+Build/
+*.zip
+*.rar
+*.7z
