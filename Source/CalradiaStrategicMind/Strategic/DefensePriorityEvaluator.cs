@@ -53,9 +53,14 @@ namespace CalradiaStrategicMind.Strategic
                 valueComponent,
                 threatenedBonus,
                 defensePriority,
+                threatReport.NearbyEnemyPartyCount,
+                threatReport.StrongestEnemyPartyName,
+                threatReport.StrongestEnemyStrength,
+                threatReport.NearestEnemyPartyName,
+                threatReport.NearestEnemyDistance,
                 threatReport.IsThreatened,
                 shouldRequestDefense,
-                GetReason(threatReport.IsThreatened, valueComponent, shouldRequestDefense));
+                GetReason(threatReport, valueComponent, shouldRequestDefense));
         }
 
         private static float GetScaledComponent(float value, float max, float scale)
@@ -78,21 +83,28 @@ namespace CalradiaStrategicMind.Strategic
             return value > max ? max : value;
         }
 
-        private static string GetReason(bool isThreatened, float valueComponent, bool shouldRequestDefense)
+        private static string GetReason(SettlementThreatReport threatReport, float valueComponent, bool shouldRequestDefense)
         {
-            if (!isThreatened)
+            if (!threatReport.IsThreatened)
             {
-                return valueComponent > 25f
-                    ? "No active threat; valuable settlement monitored"
-                    : "No active threat; low defense priority";
+                if (valueComponent > 25f)
+                {
+                    return "Safe but valuable: high prosperity or garrison";
+                }
+
+                return threatReport.NearbyEnemyPartyCount <= 0
+                    ? "Safe: no nearby strategic enemies"
+                    : "Safe: enemy pressure below local defense";
             }
 
             if (shouldRequestDefense)
             {
-                return "Active threat; defense request recommended";
+                return valueComponent > 25f
+                    ? "Defense recommended: high threat and high value"
+                    : "Threatened: enemy pressure exceeds local defense";
             }
 
-            return "Active threat; below defense request threshold";
+            return "Threatened but below request threshold";
         }
     }
 }
