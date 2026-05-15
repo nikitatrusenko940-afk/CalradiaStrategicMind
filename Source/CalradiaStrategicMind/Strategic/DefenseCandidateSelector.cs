@@ -34,7 +34,7 @@ namespace CalradiaStrategicMind.Strategic
         private List<DefenseCandidateReport> FindDefenseCandidatesCore(Settlement settlement, int maxCandidates)
         {
             var reports = new List<DefenseCandidateReport>();
-            if (settlement == null || maxCandidates <= 0)
+            if (settlement == null)
             {
                 return reports;
             }
@@ -118,7 +118,7 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             reports.Sort(CompareCandidates);
-            if (reports.Count > maxCandidates)
+            if (maxCandidates > 0 && reports.Count > maxCandidates)
             {
                 reports.RemoveRange(maxCandidates, reports.Count - maxCandidates);
             }

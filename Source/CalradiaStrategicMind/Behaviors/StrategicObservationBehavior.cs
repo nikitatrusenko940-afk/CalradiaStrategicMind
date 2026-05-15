@@ -19,6 +19,7 @@ namespace CalradiaStrategicMind.Behaviors
         private readonly SettlementValueEvaluator _settlementValueEvaluator;
         private readonly DefensePriorityEvaluator _defensePriorityEvaluator;
         private readonly DefenseCandidateSelector _defenseCandidateSelector;
+        private readonly DefenseCoverageEvaluator _defenseCoverageEvaluator;
         private int _nextPartyIndex;
         private int _nextSettlementIndex;
         private int _observationTick;
@@ -31,6 +32,7 @@ namespace CalradiaStrategicMind.Behaviors
             _settlementValueEvaluator = new SettlementValueEvaluator();
             _defensePriorityEvaluator = new DefensePriorityEvaluator();
             _defenseCandidateSelector = new DefenseCandidateSelector();
+            _defenseCoverageEvaluator = new DefenseCoverageEvaluator();
         }
 
         public override void RegisterEvents()
@@ -209,6 +211,7 @@ namespace CalradiaStrategicMind.Behaviors
                 if (ShouldLogDefenseCandidates(defensePriorityReport))
                 {
                     LogDefenseCandidates(settlement);
+                    LogDefenseCoverage(settlement);
                 }
                 observedCount++;
             }
@@ -269,6 +272,13 @@ namespace CalradiaStrategicMind.Behaviors
                 CsmLogger.Info(
                     $"Observed defense candidate: tick={_observationTick}, settlement='{report.SettlementName}', candidate='{report.CandidatePartyName}', leader='{report.CandidateLeaderName}', category={report.CandidateCategory}, strength={report.CandidateStrength:0.00}, distance={report.DistanceToSettlement:0.00}, healthyTroops={report.HealthyTroopCount}, woundedTroops={report.WoundedTroopCount}, woundedRatio={report.WoundedRatio:0.00}, isArmyLeader={report.IsArmyLeader}, isArmyMember={report.IsArmyMember}, isWeak={report.IsWeak}, isTooFar={report.IsTooFar}, isBusy={report.IsBusy}, availabilityScore={report.AvailabilityScore:0.00}, suitabilityScore={report.SuitabilityScore:0.00}, isSuitable={report.IsSuitable}, reason='{report.Reason}'");
             }
+        }
+
+        private void LogDefenseCoverage(Settlement settlement)
+        {
+            var report = _defenseCoverageEvaluator.EvaluateDefenseCoverage(settlement);
+            CsmLogger.Info(
+                $"Observed defense coverage: tick={_observationTick}, settlement='{report.SettlementName}', owner='{report.OwnerKingdomName}', type={report.SettlementType}, garrisonStrength={report.GarrisonStrength:0.00}, nearbyFriendlyStrength={report.NearbyFriendlyStrength:0.00}, suitableCandidateCount={report.SuitableCandidateCount}, suitableCandidateStrength={report.SuitableCandidateStrength:0.00}, totalAvailableDefenseStrength={report.TotalAvailableDefenseStrength:0.00}, threatScore={report.ThreatScore:0.00}, siegeThreatScore={report.SiegeThreatScore:0.00}, armySiegeThreat={report.ArmySiegeThreat:0.00}, regionalEnemyPressure={report.RegionalEnemyPressure:0.00}, defenseCoverageRatio={report.DefenseCoverageRatio:0.00}, hasDirectSiegeThreat={report.HasDirectSiegeThreat}, hasArmyPresence={report.HasArmyPresence}, hasRegionalPressure={report.HasRegionalPressure}, isDefenseEnough={report.IsDefenseEnough}, needsReinforcement={report.NeedsReinforcement}, reason='{report.Reason}'");
         }
 
         private static string GetPartyName(MobileParty party)
