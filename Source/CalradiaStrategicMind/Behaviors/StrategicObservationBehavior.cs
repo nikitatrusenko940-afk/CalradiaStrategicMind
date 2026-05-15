@@ -11,6 +11,8 @@ namespace CalradiaStrategicMind.Behaviors
         private const int MaxPartiesPerDailyObservation = 5;
 
         private readonly PartyStrengthEvaluator _partyStrengthEvaluator;
+        private int _nextPartyIndex;
+        private int _observationTick;
 
         public StrategicObservationBehavior()
         {
@@ -24,6 +26,8 @@ namespace CalradiaStrategicMind.Behaviors
 
         public override void SyncData(IDataStore dataStore)
         {
+            dataStore.SyncData("_nextPartyIndex", ref _nextPartyIndex);
+            dataStore.SyncData("_observationTick", ref _observationTick);
         }
 
         private void OnDailyTick()
@@ -40,31 +44,49 @@ namespace CalradiaStrategicMind.Behaviors
                 return;
             }
 
+            _observationTick++;
             var observedCount = 0;
-            for (var index = 0; index < parties.Count && observedCount < MaxPartiesPerDailyObservation; index++)
+            var checkedCount = 0;
+            if (_nextPartyIndex < 0 || _nextPartyIndex >= parties.Count)
             {
-                var party = parties[index];
+                _nextPartyIndex = 0;
+            }
+
+            while (checkedCount < parties.Count && observedCount < MaxPartiesPerDailyObservation)
+            {
+                var party = parties[_nextPartyIndex];
+                _nextPartyIndex++;
+                if (_nextPartyIndex >= parties.Count)
+                {
+                    _nextPartyIndex = 0;
+                }
+
+                checkedCount++;
                 if (!ShouldObserveParty(party))
                 {
                     continue;
                 }
 
-                var strength = _partyStrengthEvaluator.EvaluatePartyStrength(party);
-                var regulars = party.MemberRoster == null ? 0 : party.MemberRoster.TotalRegulars;
-                var wounded = party.MemberRoster == null ? 0 : party.MemberRoster.TotalWounded;
+                var report = _partyStrengthEvaluator.EvaluatePartyStrengthReport(party);
+                var regulars = report.TroopCount - report.WoundedCount;
+                if (regulars < 0)
+                {
+                    regulars = 0;
+                }
+
                 var leaderName = party.LeaderHero == null || party.LeaderHero.Name == null
                     ? "none"
                     : party.LeaderHero.Name.ToString();
 
                 CsmLogger.Info(
-                    $"Observed party strength: party='{GetPartyName(party)}', leader='{leaderName}', regulars={regulars}, wounded={wounded}, strength={strength:0.00}");
+                    $"Observed party strength: tick={_observationTick}, party='{GetPartyName(party)}', leader='{leaderName}', regulars={regulars}, wounded={report.WoundedCount}, totalStrength={report.TotalStrength:0.00}, healthyStrength={report.HealthyTroopStrength:0.00}, woundedStrength={report.WoundedTroopStrength:0.00}, leaderStrength={report.LeaderStrength:0.00}");
 
                 observedCount++;
             }
 
             if (observedCount == 0)
             {
-                CsmLogger.Info("Strategic observation completed: no active parties selected");
+                CsmLogger.Info($"Strategic observation completed: tick={_observationTick}, no active parties selected");
             }
         }
 
@@ -76,6 +98,11 @@ namespace CalradiaStrategicMind.Behaviors
             }
 
             if (!party.IsActive || party.IsDisbanding)
+            {
+                return false;
+            }
+
+            if (party.IsMilitia)
             {
                 return false;
             }

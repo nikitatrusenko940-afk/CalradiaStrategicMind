@@ -9,40 +9,32 @@ namespace CalradiaStrategicMind.Strategic
     {
         public float EvaluatePartyStrength(MobileParty party)
         {
-            return SafeExecutor.Run("Evaluate party strength", () => EvaluatePartyStrengthCore(party), 0f);
+            return EvaluatePartyStrengthReport(party).TotalStrength;
         }
 
-        private static float EvaluatePartyStrengthCore(MobileParty party)
+        public PartyStrengthReport EvaluatePartyStrengthReport(MobileParty party)
+        {
+            return SafeExecutor.Run("Evaluate party strength report", () => EvaluatePartyStrengthReportCore(party), PartyStrengthReport.Empty);
+        }
+
+        private static PartyStrengthReport EvaluatePartyStrengthReportCore(MobileParty party)
         {
             if (party == null)
             {
-                return 0f;
+                return PartyStrengthReport.Empty;
             }
 
             var roster = party.MemberRoster;
+            var leaderStrength = GetLeaderStrength(party.LeaderHero);
             if (roster == null)
             {
-                return GetLeaderStrength(party.LeaderHero);
+                return new PartyStrengthReport(leaderStrength, 0f, 0f, leaderStrength, 0, 0);
             }
 
-            var strength = 0f;
-            strength += roster.TotalRegulars;
-            strength += roster.TotalHealthyCount * 0.25f;
-            strength -= roster.TotalWounded * 0.35f;
-            strength += GetRosterLevelStrength(roster);
-            strength += GetLeaderStrength(party.LeaderHero);
-
-            return strength < 0f ? 0f : strength;
-        }
-
-        private static float GetRosterLevelStrength(TroopRoster roster)
-        {
-            if (roster == null)
-            {
-                return 0f;
-            }
-
-            var strength = 0f;
+            var healthyStrength = 0f;
+            var woundedStrength = 0f;
+            var troopCount = 0;
+            var woundedCount = 0;
             for (var index = 0; index < roster.Count; index++)
             {
                 var element = roster.GetElementCopyAtIndex(index);
@@ -58,17 +50,32 @@ namespace CalradiaStrategicMind.Strategic
                     healthyCount = 0;
                 }
 
-                var level = character.Level;
-                if (level < 1)
+                var woundedNumber = element.WoundedNumber;
+                if (woundedNumber < 0)
                 {
-                    level = 1;
+                    woundedNumber = 0;
                 }
 
-                strength += healthyCount * level;
-                strength += element.WoundedNumber * level * 0.25f;
+                var unitStrength = GetUnitStrength(character.Level);
+                healthyStrength += healthyCount * unitStrength;
+                woundedStrength += woundedNumber * unitStrength * 0.35f;
+
+                troopCount += element.Number;
+                woundedCount += woundedNumber;
             }
 
-            return strength;
+            var totalStrength = healthyStrength + woundedStrength + leaderStrength;
+            return new PartyStrengthReport(totalStrength, healthyStrength, woundedStrength, leaderStrength, troopCount, woundedCount);
+        }
+
+        private static float GetUnitStrength(int level)
+        {
+            if (level < 1)
+            {
+                level = 1;
+            }
+
+            return 1f + level * 0.08f;
         }
 
         private static float GetLeaderStrength(Hero leader)
@@ -84,7 +91,7 @@ namespace CalradiaStrategicMind.Strategic
                 level = 1;
             }
 
-            return 10f + level * 2f;
+            return 5f + level * 0.5f;
         }
     }
 }
