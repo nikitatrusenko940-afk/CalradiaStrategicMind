@@ -1,0 +1,184 @@
+# Defense AI Pipeline
+
+This document describes the current defense AI diagnostic pipeline in `CalradiaStrategicMind`.
+
+Current state:
+- The system is diagnostic/read-only only.
+- It does not move parties.
+- It does not change lord AI.
+- It does not change army AI.
+- It does not change settlement behavior.
+- It does not change kingdom diplomacy.
+- It does not issue orders.
+- It only logs observations and diagnostic recommendations.
+
+## Pipeline
+
+`PartyStrength` -> `PartyClassifier` -> `SettlementThreat` -> `SettlementValue` -> `DefensePriority` -> `DefenseCandidates` -> `DefenseCoverage` -> `DefenseNeed` -> `DefenseActionPlan` -> `DefenseActionPlanHistory` -> `DefenseDiagnosticsSummary` -> `DefenseEvaluationSnapshot`
+
+## Layers
+
+### PartyStrength
+
+Class: `PartyStrengthEvaluator`
+
+Calculates approximate party strength from troops, wounded troops, and leader level.
+
+Does not change party state, movement, combat behavior, recruitment, or AI decisions.
+
+Provides strength numbers to party observation, settlement threat evaluation, settlement value evaluation, and defense candidate scoring.
+
+### PartyClassifier
+
+Class: `PartyClassifier`
+
+Classifies mobile parties into strategic categories such as lord party, army leader party, garrison, caravan, villager, militia, bandit, and other.
+
+Does not change party type, army membership, or AI behavior.
+
+Provides category data to party observation, settlement threat evaluation, and defense candidate selection.
+
+### SettlementThreat
+
+Class: `SettlementThreatEvaluator`
+
+Calculates settlement threat diagnostics, including active siege, siege threat score, army siege threat, regional enemy pressure, enemy lord pressure, nearby enemy army leader parties, nearby army member parties, and nearby lone lord parties.
+
+Does not start or stop sieges, move defenders, alter garrisons, or change lord/army decisions.
+
+Provides threat data to defense priority, defense coverage, diagnostics summary, and logs.
+
+### SettlementValue
+
+Class: `SettlementValueEvaluator`
+
+Calculates strategic settlement value from settlement type, prosperity, and garrison strength.
+
+Does not change prosperity, ownership, construction, settlement behavior, or economy.
+
+Provides strategic value to defense priority and logs.
+
+### DefensePriority
+
+Class: `DefensePriorityEvaluator`
+
+Combines threat and settlement value into a read-only defense priority. It distinguishes active siege, direct army siege threat, army presence, and regional pressure.
+
+Does not request help, move parties, alter settlement behavior, or issue defense orders.
+
+Provides priority, request recommendation diagnostics, threat components, and reason text to candidate logging filters, coverage, need, action planning, summary, and logs.
+
+### DefenseCandidates
+
+Class: `DefenseCandidateSelector`
+
+Finds friendly strategic parties that could theoretically help defend a settlement. It evaluates strength, distance, army leadership, army membership, wounded ratio, weak parties, busy parties, availability, and suitability.
+
+Does not assign parties, redirect armies, detach army members, or issue orders.
+
+Provides suitable candidate diagnostics to coverage, action planning, and logs.
+
+### DefenseCoverage
+
+Class: `DefenseCoverageEvaluator`
+
+Evaluates whether current and potential defense appears sufficient against relevant threat. It combines garrison strength, nearby friendly strength, and suitable candidate strength against direct siege threat plus softened regional pressure.
+
+Does not reinforce settlements or change any party assignments.
+
+Provides coverage ratio, reinforcement need, direct siege threat flags, army presence flags, regional pressure flags, and reason text to defense need, summary, and logs.
+
+### DefenseNeed
+
+Class: `DefenseNeedEvaluator`
+
+Combines defense priority and coverage into a final diagnostic need: `None`, `Monitor`, `Reinforce`, or `UrgentDefense`.
+
+Does not execute the recommended action.
+
+Provides recommended action, needs-defense-action flag, and reason text to action planning, stability history, summary, and logs.
+
+### DefenseActionPlan
+
+Class: `DefenseActionPlanner`
+
+Creates a diagnostic action plan from a `DefenseEvaluationSnapshot`. It selects suitable candidates for diagnostic planning, chooses a primary candidate, totals selected strength, and calculates plan confidence.
+
+Does not command the selected candidate, reserve the candidate, move the candidate, or alter AI.
+
+Provides candidate selection diagnostics and plan confidence to history, summary, and logs.
+
+### DefenseActionPlanHistory
+
+Classes: `DefenseActionPlanHistory`, `DefenseActionPlanHistoryEntry`, `DefenseActionPlanStabilityReport`
+
+Tracks recent runtime-only action plan history per settlement name. It stores up to five entries and evaluates stability, escalation, and deescalation.
+
+Does not persist data to savegames yet and does not trigger AI actions.
+
+Provides stable action diagnostics, escalation/deescalation flags, and reason text to summary and logs.
+
+### DefenseDiagnosticsSummary
+
+Classes: `DefenseDiagnosticsSummary`, `DefenseDiagnosticsSummaryBuilder`
+
+Builds a short human-readable diagnostic summary from the snapshot, action plan, and stability report.
+
+Does not change any game state or execute any action.
+
+Provides a compact log line so future debugging does not require reading every detailed diagnostic line.
+
+### DefenseEvaluationSnapshot
+
+Classes: `DefenseEvaluationSnapshot`, `DefenseEvaluationSnapshotBuilder`
+
+Groups threat, value, priority, candidates, coverage, and need reports for one settlement evaluation. The builder reduces repeated calculations by passing already computed reports into later evaluators where possible.
+
+Does not cache long-term game state and does not modify AI.
+
+Provides one read-only evaluation bundle to logging, action planning, history, and summary.
+
+## Important Design Decisions
+
+- Lone lord parties are regional pressure, not direct siege threat.
+- Army leader parties represent real army-level siege risk.
+- Army member parties are not counted as separate armies.
+- Active siege is critical threat.
+- Monitor action must not trigger escalation.
+- Reinforce should require stable repeated need.
+- UrgentDefense can escalate immediately.
+- Runtime history is not saved yet and resets after game restart.
+
+## Current Logs
+
+- `Observed party strength`
+- `Observed settlement threat`
+- `Observed settlement value`
+- `Observed defense priority`
+- `Observed defense candidate`
+- `Observed defense coverage`
+- `Observed defense need`
+- `Observed defense action plan`
+- `Observed defense action stability`
+- `Observed defense summary`
+
+## Future AI Integration Boundary
+
+Future real AI integration must start only after a separate explicit task.
+
+It should:
+- use only stable action or summary data;
+- not react to one random tick;
+- have a feature flag or setting;
+- start in dry-run mode;
+- have a complete disable option.
+
+Until that separate task exists, all defense action outputs are diagnostics only.
+
+## Next Possible Stages
+
+- Stable settlement id instead of settlement name for history.
+- Save/load history through `IDataStore` later.
+- Config/MCM later.
+- Dry-run defense controller.
+- Real defense controller only after multiple successful diagnostics.
