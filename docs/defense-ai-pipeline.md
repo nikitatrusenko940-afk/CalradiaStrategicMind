@@ -14,7 +14,7 @@ Current state:
 
 ## Pipeline
 
-`PartyStrength` -> `PartyClassifier` -> `SettlementThreat` -> `SettlementValue` -> `DefensePriority` -> `DefenseCandidates` -> `DefenseCoverage` -> `DefenseNeed` -> `DefenseActionPlan` -> `DefenseActionPlanHistory` -> `DefenseDiagnosticsSummary` -> `DryRunDefenseController` -> `DefenseEvaluationSnapshot`
+`PartyStrength` -> `PartyClassifier` -> `SettlementThreat` -> `SettlementValue` -> `DefensePriority` -> `DefenseCandidates` -> `DefenseCoverage` -> `DefenseNeed` -> `DefenseEvaluationSnapshot` -> `DefenseActionPlan` -> `DefenseActionPlanHistory` -> `DefenseDiagnosticsSummary` -> `DryRunDefenseController`
 
 ## Layers
 
@@ -142,11 +142,11 @@ Provides dry-run decision diagnostics such as `WouldAct`, `WouldMonitor`, `Would
 
 Classes: `DefenseEvaluationSnapshot`, `DefenseEvaluationSnapshotBuilder`
 
-Groups threat, value, priority, candidates, coverage, and need reports for one settlement evaluation. The builder reduces repeated calculations by passing already computed reports into later evaluators where possible.
+Groups threat, value, priority, candidates, coverage, and need reports for one settlement evaluation. The snapshot is created before action plan, history, summary, and dry-run evaluation, then passes ready reports to those later diagnostic layers. The builder reduces repeated calculations by passing already computed reports into later evaluators where possible.
 
 Does not cache long-term game state and does not modify AI.
 
-Provides one read-only evaluation bundle to logging, action planning, history, and summary.
+Provides one read-only evaluation bundle to logging, action planning, history, summary, and dry-run evaluation.
 
 ## Important Design Decisions
 
