@@ -18,6 +18,7 @@ namespace CalradiaStrategicMind.Behaviors
         private readonly DefenseEvaluationSnapshotBuilder _defenseEvaluationSnapshotBuilder;
         private readonly DefenseActionPlanner _defenseActionPlanner;
         private readonly DefenseActionPlanHistory _defenseActionPlanHistory;
+        private readonly DefenseDiagnosticsSummaryBuilder _defenseDiagnosticsSummaryBuilder;
         private int _nextPartyIndex;
         private int _nextSettlementIndex;
         private int _observationTick;
@@ -29,6 +30,7 @@ namespace CalradiaStrategicMind.Behaviors
             _defenseEvaluationSnapshotBuilder = new DefenseEvaluationSnapshotBuilder();
             _defenseActionPlanner = new DefenseActionPlanner();
             _defenseActionPlanHistory = new DefenseActionPlanHistory();
+            _defenseDiagnosticsSummaryBuilder = new DefenseDiagnosticsSummaryBuilder();
         }
 
         public override void RegisterEvents()
@@ -215,6 +217,8 @@ namespace CalradiaStrategicMind.Behaviors
                     _defenseActionPlanHistory.Record(actionPlan, _observationTick);
                     var stabilityReport = _defenseActionPlanHistory.EvaluateStability(actionPlan, _observationTick);
                     LogDefenseActionStability(stabilityReport);
+                    var summary = _defenseDiagnosticsSummaryBuilder.Build(snapshot, actionPlan, stabilityReport);
+                    LogDefenseSummary(summary);
                 }
                 observedCount++;
             }
@@ -294,6 +298,12 @@ namespace CalradiaStrategicMind.Behaviors
         {
             CsmLogger.Info(
                 $"Observed defense action stability: tick={_observationTick}, settlement='{report.SettlementName}', currentAction='{report.CurrentRecommendedAction}', stableAction='{report.StableRecommendedAction}', consecutiveSameActionCount={report.ConsecutiveSameActionCount}, recentNeedsDefenseActionCount={report.RecentNeedsDefenseActionCount}, recentUrgentDefenseCount={report.RecentUrgentDefenseCount}, recentReinforceCount={report.RecentReinforceCount}, isStable={report.IsStable}, shouldEscalate={report.ShouldEscalate}, shouldDeescalate={report.ShouldDeescalate}, reason='{report.Reason}'");
+        }
+
+        private void LogDefenseSummary(DefenseDiagnosticsSummary summary)
+        {
+            CsmLogger.Info(
+                $"Observed defense summary: tick={_observationTick}, settlement='{summary.SettlementName}', owner='{summary.OwnerKingdomName}', threatType={summary.ThreatType}, action='{summary.RecommendedAction}', stableAction='{summary.StableRecommendedAction}', isStable={summary.IsStable}, shouldEscalate={summary.ShouldEscalate}, shouldDeescalate={summary.ShouldDeescalate}, priority={summary.DefensePriority:0.00}, coverageRatio={summary.DefenseCoverageRatio:0.00}, coverageStatus={summary.CoverageStatus}, primaryCandidate='{summary.PrimaryCandidateName}', primaryCandidateCategory={summary.PrimaryCandidateCategory}, confidence={summary.PlanConfidence:0.00}, reason='{summary.Reason}'");
         }
 
         private static string GetPartyName(MobileParty party)
