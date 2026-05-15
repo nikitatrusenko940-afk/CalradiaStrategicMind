@@ -11,12 +11,14 @@ namespace CalradiaStrategicMind.Behaviors
         private const int MaxPartiesPerDailyObservation = 5;
 
         private readonly PartyStrengthEvaluator _partyStrengthEvaluator;
+        private readonly PartyClassifier _partyClassifier;
         private int _nextPartyIndex;
         private int _observationTick;
 
         public StrategicObservationBehavior()
         {
             _partyStrengthEvaluator = new PartyStrengthEvaluator();
+            _partyClassifier = new PartyClassifier();
         }
 
         public override void RegisterEvents()
@@ -46,10 +48,15 @@ namespace CalradiaStrategicMind.Behaviors
 
             _observationTick++;
             var observedCount = 0;
+            var fallbackObservedCount = 0;
+            var fallbackParties = new MobileParty[MaxPartiesPerDailyObservation];
+            var fallbackCategories = new PartyObservationCategory[MaxPartiesPerDailyObservation];
             var checkedCount = 0;
+            var startPartyIndex = _nextPartyIndex;
             if (_nextPartyIndex < 0 || _nextPartyIndex >= parties.Count)
             {
                 _nextPartyIndex = 0;
+                startPartyIndex = 0;
             }
 
             while (checkedCount < parties.Count && observedCount < MaxPartiesPerDailyObservation)
@@ -67,24 +74,44 @@ namespace CalradiaStrategicMind.Behaviors
                     continue;
                 }
 
-                var report = _partyStrengthEvaluator.EvaluatePartyStrengthReport(party);
-                var regulars = report.TroopCount - report.WoundedCount;
-                if (regulars < 0)
+                var category = _partyClassifier.GetCategory(party);
+                if (_partyClassifier.ShouldObserveForStrategicAi(party))
                 {
-                    regulars = 0;
+                    LogPartyObservation(party, category);
+                    observedCount++;
+                    continue;
                 }
 
-                var leaderName = party.LeaderHero == null || party.LeaderHero.Name == null
-                    ? "none"
-                    : party.LeaderHero.Name.ToString();
-
-                CsmLogger.Info(
-                    $"Observed party strength: tick={_observationTick}, party='{GetPartyName(party)}', leader='{leaderName}', regulars={regulars}, wounded={report.WoundedCount}, totalStrength={report.TotalStrength:0.00}, healthyStrength={report.HealthyTroopStrength:0.00}, woundedStrength={report.WoundedTroopStrength:0.00}, leaderStrength={report.LeaderStrength:0.00}");
-
-                observedCount++;
+                if (observedCount == 0
+                    && fallbackObservedCount < MaxPartiesPerDailyObservation
+                    && ShouldUseFallbackCategory(category))
+                {
+                    fallbackParties[fallbackObservedCount] = party;
+                    fallbackCategories[fallbackObservedCount] = category;
+                    fallbackObservedCount++;
+                }
             }
 
-            if (observedCount == 0)
+            if (checkedCount >= parties.Count)
+            {
+                _nextPartyIndex = startPartyIndex + 1;
+                if (_nextPartyIndex >= parties.Count)
+                {
+                    _nextPartyIndex = 0;
+                }
+            }
+
+            if (observedCount > 0)
+            {
+                return;
+            }
+
+            for (var index = 0; index < fallbackObservedCount; index++)
+            {
+                LogPartyObservation(fallbackParties[index], fallbackCategories[index]);
+            }
+
+            if (fallbackObservedCount == 0)
             {
                 CsmLogger.Info($"Strategic observation completed: tick={_observationTick}, no active parties selected");
             }
@@ -102,12 +129,30 @@ namespace CalradiaStrategicMind.Behaviors
                 return false;
             }
 
-            if (party.IsMilitia)
+            return party.MemberRoster != null && party.MemberRoster.TotalManCount > 0;
+        }
+
+        private static bool ShouldUseFallbackCategory(PartyObservationCategory category)
+        {
+            return category != PartyObservationCategory.Unknown
+                && category != PartyObservationCategory.Militia;
+        }
+
+        private void LogPartyObservation(MobileParty party, PartyObservationCategory category)
+        {
+            var report = _partyStrengthEvaluator.EvaluatePartyStrengthReport(party);
+            var regulars = report.TroopCount - report.WoundedCount;
+            if (regulars < 0)
             {
-                return false;
+                regulars = 0;
             }
 
-            return party.MemberRoster != null && party.MemberRoster.TotalManCount > 0;
+            var leaderName = party == null || party.LeaderHero == null || party.LeaderHero.Name == null
+                ? "none"
+                : party.LeaderHero.Name.ToString();
+
+            CsmLogger.Info(
+                $"Observed party strength: tick={_observationTick}, category={category}, party='{GetPartyName(party)}', leader='{leaderName}', regulars={regulars}, wounded={report.WoundedCount}, totalStrength={report.TotalStrength:0.00}, healthyStrength={report.HealthyTroopStrength:0.00}, woundedStrength={report.WoundedTroopStrength:0.00}, leaderStrength={report.LeaderStrength:0.00}");
         }
 
         private static string GetPartyName(MobileParty party)
