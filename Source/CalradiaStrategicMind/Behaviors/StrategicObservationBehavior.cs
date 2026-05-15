@@ -1,4 +1,5 @@
 using CalradiaStrategicMind.Logging;
+using CalradiaStrategicMind.Settings;
 using CalradiaStrategicMind.Strategic;
 using CalradiaStrategicMind.Utils;
 using TaleWorlds.CampaignSystem;
@@ -205,24 +206,51 @@ namespace CalradiaStrategicMind.Behaviors
                     continue;
                 }
 
+                if (!DryRunDefenseSettings.EnableDefenseDiagnostics)
+                {
+                    observedCount++;
+                    continue;
+                }
+
                 var snapshot = _defenseEvaluationSnapshotBuilder.Build(settlement, MaxDefenseCandidatesPerSettlement);
-                LogSettlementThreat(snapshot.ThreatReport);
-                LogSettlementValue(snapshot.ValueReport);
-                LogDefensePriority(snapshot.PriorityReport);
+                if (DryRunDefenseSettings.EnableVerboseDefenseLogs)
+                {
+                    LogSettlementThreat(snapshot.ThreatReport);
+                    LogSettlementValue(snapshot.ValueReport);
+                    LogDefensePriority(snapshot.PriorityReport);
+                }
+
                 if (ShouldLogDefenseCandidates(snapshot.PriorityReport))
                 {
-                    LogDefenseCandidates(snapshot.CandidateReports);
-                    LogDefenseCoverage(snapshot.CoverageReport);
-                    LogDefenseNeed(snapshot.NeedReport);
+                    if (DryRunDefenseSettings.EnableDefenseCandidateLogs)
+                    {
+                        LogDefenseCandidates(snapshot.CandidateReports);
+                    }
+
+                    if (DryRunDefenseSettings.EnableVerboseDefenseLogs)
+                    {
+                        LogDefenseCoverage(snapshot.CoverageReport);
+                        LogDefenseNeed(snapshot.NeedReport);
+                    }
+
                     var actionPlan = _defenseActionPlanner.CreatePlan(snapshot);
-                    LogDefenseActionPlan(actionPlan);
-                    _defenseActionPlanHistory.Record(actionPlan, _observationTick);
-                    var stabilityReport = _defenseActionPlanHistory.EvaluateStability(actionPlan, _observationTick);
-                    LogDefenseActionStability(stabilityReport);
+                    if (DryRunDefenseSettings.EnableVerboseDefenseLogs)
+                    {
+                        LogDefenseActionPlan(actionPlan);
+                    }
+
+                    var stabilityReport = GetStabilityReport(actionPlan);
                     var summary = _defenseDiagnosticsSummaryBuilder.Build(snapshot, actionPlan, stabilityReport);
-                    LogDefenseSummary(summary);
-                    var dryRunDecision = _dryRunDefenseController.EvaluateDryRun(summary, actionPlan, stabilityReport);
-                    LogDryRunDefenseDecision(dryRunDecision);
+                    if (DryRunDefenseSettings.EnableDefenseSummaryLogs)
+                    {
+                        LogDefenseSummary(summary);
+                    }
+
+                    if (DryRunDefenseSettings.EnableDryRunDefenseController)
+                    {
+                        var dryRunDecision = _dryRunDefenseController.EvaluateDryRun(summary, actionPlan, stabilityReport);
+                        LogDryRunDefenseDecision(dryRunDecision);
+                    }
                 }
                 observedCount++;
             }
@@ -296,6 +324,34 @@ namespace CalradiaStrategicMind.Behaviors
         {
             CsmLogger.Info(
                 $"Observed defense action plan: tick={_observationTick}, settlement='{plan.SettlementName}', owner='{plan.OwnerKingdomName}', recommendedAction='{plan.RecommendedAction}', needsDefenseAction={plan.NeedsDefenseAction}, defensePriority={plan.DefensePriority:0.00}, defenseCoverageRatio={plan.DefenseCoverageRatio:0.00}, selectedCandidateCount={plan.SelectedCandidateCount}, selectedCandidateStrength={plan.SelectedCandidateStrength:0.00}, primaryCandidate='{plan.PrimaryCandidateName}', primaryCandidateCategory={plan.PrimaryCandidateCategory}, primaryCandidateStrength={plan.PrimaryCandidateStrength:0.00}, primaryCandidateDistance={plan.PrimaryCandidateDistance:0.00}, planConfidence={plan.PlanConfidence:0.00}, reason='{plan.Reason}'");
+        }
+
+        private DefenseActionPlanStabilityReport GetStabilityReport(DefenseActionPlan actionPlan)
+        {
+            if (!DryRunDefenseSettings.EnableDefenseActionHistory)
+            {
+                return new DefenseActionPlanStabilityReport(
+                    actionPlan.SettlementName,
+                    actionPlan.RecommendedAction,
+                    "None",
+                    0,
+                    0,
+                    0,
+                    0,
+                    false,
+                    false,
+                    false,
+                    "Defense action history disabled");
+            }
+
+            _defenseActionPlanHistory.Record(actionPlan, _observationTick);
+            var stabilityReport = _defenseActionPlanHistory.EvaluateStability(actionPlan, _observationTick);
+            if (DryRunDefenseSettings.EnableVerboseDefenseLogs)
+            {
+                LogDefenseActionStability(stabilityReport);
+            }
+
+            return stabilityReport;
         }
 
         private void LogDefenseActionStability(DefenseActionPlanStabilityReport report)

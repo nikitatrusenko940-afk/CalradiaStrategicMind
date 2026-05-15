@@ -188,6 +188,22 @@ The current dry-run controller is still diagnostic only. It logs what the mod wo
 
 Until a separate real integration task exists, all defense action outputs are diagnostics only.
 
+## Code Settings
+
+Class: `DryRunDefenseSettings`
+
+The project currently has temporary static code settings for defense diagnostics and dry-run logging. These settings are compile-time/static values only. There is no config file and MCM is not connected yet.
+
+Current settings:
+- `EnableDefenseDiagnostics`: enables or disables the settlement defense diagnostic pipeline logs.
+- `EnableVerboseDefenseLogs`: enables or disables long detailed defense logs such as threat, value, priority, coverage, need, action plan, and stability.
+- `EnableDefenseCandidateLogs`: enables or disables `Observed defense candidate` logs. Candidate calculations can still be used internally by coverage and action planning.
+- `EnableDefenseSummaryLogs`: enables or disables `Observed defense summary` logs.
+- `EnableDryRunDefenseController`: enables or disables dry-run decision evaluation and `Observed dry-run defense decision` logs.
+- `EnableDefenseActionHistory`: enables or disables runtime action-plan history and stability logging.
+
+These settings are intended as a simple bridge toward future configuration. MCM must only be added in a separate explicit task.
+
 ## Next Possible Stages
 
 - Stable settlement id instead of settlement name for history.
