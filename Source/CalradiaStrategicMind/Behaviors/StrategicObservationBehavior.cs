@@ -15,6 +15,7 @@ namespace CalradiaStrategicMind.Behaviors
         private readonly PartyStrengthEvaluator _partyStrengthEvaluator;
         private readonly PartyClassifier _partyClassifier;
         private readonly SettlementThreatEvaluator _settlementThreatEvaluator;
+        private readonly SettlementValueEvaluator _settlementValueEvaluator;
         private int _nextPartyIndex;
         private int _nextSettlementIndex;
         private int _observationTick;
@@ -24,6 +25,7 @@ namespace CalradiaStrategicMind.Behaviors
             _partyStrengthEvaluator = new PartyStrengthEvaluator();
             _partyClassifier = new PartyClassifier();
             _settlementThreatEvaluator = new SettlementThreatEvaluator();
+            _settlementValueEvaluator = new SettlementValueEvaluator();
         }
 
         public override void RegisterEvents()
@@ -197,6 +199,7 @@ namespace CalradiaStrategicMind.Behaviors
                 }
 
                 LogSettlementThreat(settlement);
+                LogSettlementValue(settlement);
                 observedCount++;
             }
         }
@@ -221,6 +224,13 @@ namespace CalradiaStrategicMind.Behaviors
             var report = _settlementThreatEvaluator.EvaluateSettlementThreat(settlement);
             CsmLogger.Info(
                 $"Observed settlement threat: tick={_observationTick}, settlement='{report.SettlementName}', owner='{report.OwnerKingdomName}', type={report.SettlementType}, garrisonStrength={report.GarrisonStrength:0.00}, nearbyEnemyStrength={report.NearbyEnemyStrength:0.00}, nearbyEnemyPartyCount={report.NearbyEnemyPartyCount}, nearbyFriendlyStrength={report.NearbyFriendlyStrength:0.00}, nearbyFriendlyPartyCount={report.NearbyFriendlyPartyCount}, strongestEnemyPartyName='{report.StrongestEnemyPartyName}', strongestEnemyStrength={report.StrongestEnemyStrength:0.00}, nearestEnemyPartyName='{report.NearestEnemyPartyName}', nearestEnemyDistance={report.NearestEnemyDistance:0.00}, threatScore={report.ThreatScore:0.00}, isThreatened={report.IsThreatened}");
+        }
+
+        private void LogSettlementValue(Settlement settlement)
+        {
+            var report = _settlementValueEvaluator.EvaluateSettlementValue(settlement);
+            CsmLogger.Info(
+                $"Observed settlement value: tick={_observationTick}, settlement='{report.SettlementName}', owner='{report.OwnerKingdomName}', type={report.SettlementType}, prosperity={report.Prosperity:0.00}, garrisonStrength={report.GarrisonStrength:0.00}, strategicValue={report.StrategicValue:0.00}, reason='{report.ValueReason}'");
         }
 
         private static string GetPartyName(MobileParty party)
