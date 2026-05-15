@@ -135,12 +135,14 @@ namespace CalradiaStrategicMind.Strategic
 
             if (shouldRequestDefense)
             {
-                return "Defense recommended: active siege or army threat";
+                return "Defense recommended: active siege or army siege threat";
             }
 
             if (threatReport.NearbyEnemyArmyLeaderPartyCount > 0)
             {
-                return "Army threat: enemy army near settlement";
+                return threatReport.SiegeThreatScore > 0f
+                    ? "Army siege threat: enemy army pressure exceeds local defense"
+                    : "Army presence: enemy army nearby, local defense holds";
             }
 
             if (threatReport.NearbyEnemyLordPartyCount > 0)
