@@ -22,7 +22,7 @@ namespace CalradiaStrategicMind.Strategic
                 return PartyObservationCategory.Unknown;
             }
 
-            if (party.Army != null)
+            if (party.Army != null && party.Army.LeaderParty == party)
             {
                 return PartyObservationCategory.ArmyParty;
             }

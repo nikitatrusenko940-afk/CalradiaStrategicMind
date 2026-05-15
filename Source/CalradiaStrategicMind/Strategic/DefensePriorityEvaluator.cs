@@ -6,11 +6,15 @@ namespace CalradiaStrategicMind.Strategic
     public class DefensePriorityEvaluator
     {
         private const float BasePriority = 5f;
-        private const float MaxThreatComponent = 45f;
+        private const float MaxSiegeThreatComponent = 45f;
         private const float ThreatScale = 250f;
+        private const float MaxAreaPressureComponent = 12f;
+        private const float AreaPressureScale = 600f;
         private const float MaxValueComponent = 40f;
         private const float ValueScale = 350f;
-        private const float ThreatenedPriorityBonus = 35f;
+        private const float ActiveSiegeBonus = 45f;
+        private const float EnemyArmyBonus = 25f;
+        private const float ExtremePressureBonus = 10f;
         private const float DefenseRequestThreshold = 70f;
 
         private readonly SettlementThreatEvaluator _settlementThreatEvaluator;
@@ -36,12 +40,14 @@ namespace CalradiaStrategicMind.Strategic
 
             var threatReport = _settlementThreatEvaluator.EvaluateSettlementThreat(settlement);
             var valueReport = _settlementValueEvaluator.EvaluateSettlementValue(settlement);
-            var threatComponent = GetScaledComponent(threatReport.ThreatScore, MaxThreatComponent, ThreatScale);
+            var siegeThreatComponent = GetScaledComponent(threatReport.SiegeThreatScore, MaxSiegeThreatComponent, ThreatScale);
+            var areaPressureComponent = GetScaledComponent(threatReport.RegionalEnemyPressure, MaxAreaPressureComponent, AreaPressureScale);
+            var threatComponent = siegeThreatComponent + areaPressureComponent;
             var valueComponent = GetScaledComponent(valueReport.StrategicValue, MaxValueComponent, ValueScale);
-            var threatenedBonus = threatReport.IsThreatened ? ThreatenedPriorityBonus : 0f;
+            var threatenedBonus = GetThreatenedBonus(threatReport);
             var defensePriority = Clamp(BasePriority + threatComponent + valueComponent + threatenedBonus, 0f, 100f);
 
-            var shouldRequestDefense = threatReport.IsThreatened && defensePriority >= DefenseRequestThreshold;
+            var shouldRequestDefense = ShouldRequestDefense(threatReport, defensePriority);
 
             return new DefensePriorityReport(
                 threatReport.SettlementName,
@@ -53,14 +59,21 @@ namespace CalradiaStrategicMind.Strategic
                 valueComponent,
                 threatenedBonus,
                 defensePriority,
+                threatReport.SiegeThreatScore,
+                threatReport.ArmySiegeThreat,
+                threatReport.RegionalEnemyPressure,
+                threatReport.HasActiveSiege,
                 threatReport.NearbyEnemyPartyCount,
+                threatReport.NearbyEnemyArmyMemberPartyCount,
+                threatReport.NearbyEnemyArmyLeaderPartyCount,
+                threatReport.NearbyEnemyLordPartyCount,
                 threatReport.StrongestEnemyPartyName,
                 threatReport.StrongestEnemyStrength,
                 threatReport.NearestEnemyPartyName,
                 threatReport.NearestEnemyDistance,
                 threatReport.IsThreatened,
                 shouldRequestDefense,
-                GetReason(threatReport, valueComponent, shouldRequestDefense));
+                GetReason(threatReport, shouldRequestDefense));
         }
 
         private static float GetScaledComponent(float value, float max, float scale)
@@ -83,28 +96,59 @@ namespace CalradiaStrategicMind.Strategic
             return value > max ? max : value;
         }
 
-        private static string GetReason(SettlementThreatReport threatReport, float valueComponent, bool shouldRequestDefense)
+        private static float GetThreatenedBonus(SettlementThreatReport threatReport)
         {
-            if (!threatReport.IsThreatened)
+            if (threatReport.HasActiveSiege)
             {
-                if (valueComponent > 25f)
-                {
-                    return "Safe but valuable: high prosperity or garrison";
-                }
+                return ActiveSiegeBonus;
+            }
 
-                return threatReport.NearbyEnemyPartyCount <= 0
-                    ? "Safe: no nearby strategic enemies"
-                    : "Safe: enemy pressure below local defense";
+            if (threatReport.NearbyEnemyArmyLeaderPartyCount > 0 && threatReport.SiegeThreatScore > 0f)
+            {
+                return EnemyArmyBonus;
+            }
+
+            return threatReport.IsThreatened ? ExtremePressureBonus : 0f;
+        }
+
+        private static bool ShouldRequestDefense(SettlementThreatReport threatReport, float defensePriority)
+        {
+            if (threatReport.HasActiveSiege)
+            {
+                return true;
+            }
+
+            if (threatReport.NearbyEnemyArmyLeaderPartyCount > 0 && threatReport.SiegeThreatScore > 0f)
+            {
+                return defensePriority >= DefenseRequestThreshold;
+            }
+
+            return false;
+        }
+
+        private static string GetReason(SettlementThreatReport threatReport, bool shouldRequestDefense)
+        {
+            if (threatReport.HasActiveSiege)
+            {
+                return "Critical: active siege";
             }
 
             if (shouldRequestDefense)
             {
-                return valueComponent > 25f
-                    ? "Defense recommended: high threat and high value"
-                    : "Threatened: enemy pressure exceeds local defense";
+                return "Defense recommended: active siege or army threat";
             }
 
-            return "Threatened but below request threshold";
+            if (threatReport.NearbyEnemyArmyLeaderPartyCount > 0)
+            {
+                return "Army threat: enemy army near settlement";
+            }
+
+            if (threatReport.NearbyEnemyLordPartyCount > 0)
+            {
+                return "Regional pressure: enemy lords nearby";
+            }
+
+            return "Safe: no siege threat";
         }
     }
 }

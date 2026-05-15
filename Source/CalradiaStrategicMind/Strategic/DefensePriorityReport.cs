@@ -12,6 +12,13 @@ namespace CalradiaStrategicMind.Strategic
             0f,
             0f,
             0f,
+            0f,
+            0f,
+            0f,
+            false,
+            0,
+            0,
+            0,
             0,
             "none",
             0f,
@@ -31,7 +38,14 @@ namespace CalradiaStrategicMind.Strategic
             float valueComponent,
             float threatenedBonus,
             float defensePriority,
+            float siegeThreatScore,
+            float armySiegeThreat,
+            float regionalEnemyPressure,
+            bool hasActiveSiege,
             int enemyPartyCount,
+            int enemyArmyMemberPartyCount,
+            int enemyArmyLeaderPartyCount,
+            int enemyLordPartyCount,
             string strongestEnemyPartyName,
             float strongestEnemyStrength,
             string nearestEnemyPartyName,
@@ -49,7 +63,14 @@ namespace CalradiaStrategicMind.Strategic
             ValueComponent = valueComponent;
             ThreatenedBonus = threatenedBonus;
             DefensePriority = defensePriority;
+            SiegeThreatScore = siegeThreatScore;
+            ArmySiegeThreat = armySiegeThreat;
+            RegionalEnemyPressure = regionalEnemyPressure;
+            HasActiveSiege = hasActiveSiege;
             EnemyPartyCount = enemyPartyCount;
+            EnemyArmyMemberPartyCount = enemyArmyMemberPartyCount;
+            EnemyArmyLeaderPartyCount = enemyArmyLeaderPartyCount;
+            EnemyLordPartyCount = enemyLordPartyCount;
             StrongestEnemyPartyName = strongestEnemyPartyName;
             StrongestEnemyStrength = strongestEnemyStrength;
             NearestEnemyPartyName = nearestEnemyPartyName;
@@ -77,7 +98,31 @@ namespace CalradiaStrategicMind.Strategic
 
         public float DefensePriority { get; private set; }
 
+        public float SiegeThreatScore { get; private set; }
+
+        public float ArmySiegeThreat { get; private set; }
+
+        public float RegionalEnemyPressure { get; private set; }
+
+        public float AreaEnemyPressure
+        {
+            get { return RegionalEnemyPressure; }
+        }
+
+        public bool HasActiveSiege { get; private set; }
+
         public int EnemyPartyCount { get; private set; }
+
+        public int EnemyArmyMemberPartyCount { get; private set; }
+
+        public int EnemyArmyLeaderPartyCount { get; private set; }
+
+        public int EnemyArmyCount
+        {
+            get { return EnemyArmyLeaderPartyCount; }
+        }
+
+        public int EnemyLordPartyCount { get; private set; }
 
         public string StrongestEnemyPartyName { get; private set; }
 

@@ -18,6 +18,20 @@ namespace CalradiaStrategicMind.Strategic
             "none",
             0f,
             0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            false,
+            0,
+            0,
+            0,
+            "none",
+            0f,
+            "none",
+            0f,
             false);
 
         public SettlementThreatReport(
@@ -36,6 +50,20 @@ namespace CalradiaStrategicMind.Strategic
             string strongestFriendlyPartyName,
             float strongestFriendlyStrength,
             float threatScore,
+            float siegeThreatScore,
+            float armySiegeThreat,
+            float regionalEnemyPressure,
+            float enemyArmyStrength,
+            float enemyLordPressure,
+            float activeSiegeThreat,
+            bool hasActiveSiege,
+            int nearbyEnemyArmyMemberPartyCount,
+            int nearbyEnemyArmyLeaderPartyCount,
+            int nearbyEnemyLordPartyCount,
+            string strongestEnemyArmyName,
+            float strongestEnemyArmyStrength,
+            string strongestEnemyLordName,
+            float strongestEnemyLordStrength,
             bool isThreatened)
         {
             SettlementName = settlementName;
@@ -53,6 +81,20 @@ namespace CalradiaStrategicMind.Strategic
             StrongestFriendlyPartyName = strongestFriendlyPartyName;
             StrongestFriendlyStrength = strongestFriendlyStrength;
             ThreatScore = threatScore;
+            SiegeThreatScore = siegeThreatScore;
+            ArmySiegeThreat = armySiegeThreat;
+            RegionalEnemyPressure = regionalEnemyPressure;
+            EnemyArmyStrength = enemyArmyStrength;
+            EnemyLordPressure = enemyLordPressure;
+            ActiveSiegeThreat = activeSiegeThreat;
+            HasActiveSiege = hasActiveSiege;
+            NearbyEnemyArmyMemberPartyCount = nearbyEnemyArmyMemberPartyCount;
+            NearbyEnemyArmyLeaderPartyCount = nearbyEnemyArmyLeaderPartyCount;
+            NearbyEnemyLordPartyCount = nearbyEnemyLordPartyCount;
+            StrongestEnemyArmyName = strongestEnemyArmyName;
+            StrongestEnemyArmyStrength = strongestEnemyArmyStrength;
+            StrongestEnemyLordName = strongestEnemyLordName;
+            StrongestEnemyLordStrength = strongestEnemyLordStrength;
             IsThreatened = isThreatened;
         }
 
@@ -85,6 +127,44 @@ namespace CalradiaStrategicMind.Strategic
         public float StrongestFriendlyStrength { get; private set; }
 
         public float ThreatScore { get; private set; }
+
+        public float SiegeThreatScore { get; private set; }
+
+        public float ArmySiegeThreat { get; private set; }
+
+        public float RegionalEnemyPressure { get; private set; }
+
+        public float AreaEnemyPressure
+        {
+            get { return RegionalEnemyPressure; }
+        }
+
+        public float EnemyArmyStrength { get; private set; }
+
+        public float EnemyLordPressure { get; private set; }
+
+        public float ActiveSiegeThreat { get; private set; }
+
+        public bool HasActiveSiege { get; private set; }
+
+        public int NearbyEnemyArmyMemberPartyCount { get; private set; }
+
+        public int NearbyEnemyArmyLeaderPartyCount { get; private set; }
+
+        public int NearbyEnemyArmyCount
+        {
+            get { return NearbyEnemyArmyLeaderPartyCount; }
+        }
+
+        public int NearbyEnemyLordPartyCount { get; private set; }
+
+        public string StrongestEnemyArmyName { get; private set; }
+
+        public float StrongestEnemyArmyStrength { get; private set; }
+
+        public string StrongestEnemyLordName { get; private set; }
+
+        public float StrongestEnemyLordStrength { get; private set; }
 
         public bool IsThreatened { get; private set; }
     }

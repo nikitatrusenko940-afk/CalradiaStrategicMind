@@ -8,6 +8,7 @@ namespace CalradiaStrategicMind.Strategic
     public class SettlementThreatEvaluator
     {
         private const float NearbyPartySearchRadius = 80f;
+        private const float ActiveSiegeBaseThreat = 500f;
 
         private readonly PartyStrengthEvaluator _partyStrengthEvaluator;
         private readonly PartyClassifier _partyClassifier;
@@ -36,12 +37,23 @@ namespace CalradiaStrategicMind.Strategic
             var nearbyFriendlyStrength = 0f;
             var nearbyEnemyPartyCount = 0;
             var nearbyFriendlyPartyCount = 0;
+            var armySiegeThreat = 0f;
+            var enemyLordPressure = 0f;
+            var nearbyEnemyArmyMemberPartyCount = 0;
+            var nearbyEnemyArmyLeaderPartyCount = 0;
+            var nearbyEnemyLordPartyCount = 0;
             var nearestEnemyPartyName = "none";
             var nearestEnemyDistance = 0f;
             var strongestEnemyPartyName = "none";
             var strongestEnemyStrength = 0f;
+            var strongestEnemyArmyName = "none";
+            var strongestEnemyArmyStrength = 0f;
+            var strongestEnemyLordName = "none";
+            var strongestEnemyLordStrength = 0f;
             var strongestFriendlyPartyName = "none";
             var strongestFriendlyStrength = 0f;
+            var hasActiveSiege = settlement.IsUnderSiege;
+            var activeSiegeThreat = hasActiveSiege ? ActiveSiegeBaseThreat + garrisonStrength * 0.5f : 0f;
             var parties = MobileParty.All;
 
             if (parties != null)
@@ -50,7 +62,8 @@ namespace CalradiaStrategicMind.Strategic
                 for (var index = 0; index < parties.Count; index++)
                 {
                     var party = parties[index];
-                    if (!ShouldCountNearbyParty(party))
+                    var category = _partyClassifier.GetCategory(party);
+                    if (!ShouldCountNearbyParty(party, category))
                     {
                         continue;
                     }
@@ -67,7 +80,10 @@ namespace CalradiaStrategicMind.Strategic
 
                     if (IsEnemy(ownerFaction, partyFaction))
                     {
-                        nearbyEnemyStrength += partyStrength * distanceWeight;
+                        var weightedStrength = partyStrength * distanceWeight;
+                        var isArmyMember = party.Army != null;
+                        var isArmyLeader = isArmyMember && party.Army.LeaderParty == party;
+                        nearbyEnemyStrength += weightedStrength;
                         nearbyEnemyPartyCount++;
 
                         if (nearestEnemyPartyName == "none" || distance < nearestEnemyDistance)
@@ -80,6 +96,34 @@ namespace CalradiaStrategicMind.Strategic
                         {
                             strongestEnemyPartyName = GetPartyName(party);
                             strongestEnemyStrength = partyStrength;
+                        }
+
+                        if (isArmyMember)
+                        {
+                            nearbyEnemyArmyMemberPartyCount++;
+                        }
+
+                        if (isArmyLeader)
+                        {
+                            armySiegeThreat += weightedStrength;
+                            nearbyEnemyArmyLeaderPartyCount++;
+
+                            if (partyStrength > strongestEnemyArmyStrength)
+                            {
+                                strongestEnemyArmyName = GetPartyName(party);
+                                strongestEnemyArmyStrength = partyStrength;
+                            }
+                        }
+                        else if (!isArmyMember && category == PartyObservationCategory.LordParty)
+                        {
+                            enemyLordPressure += weightedStrength;
+                            nearbyEnemyLordPartyCount++;
+
+                            if (partyStrength > strongestEnemyLordStrength)
+                            {
+                                strongestEnemyLordName = GetPartyName(party);
+                                strongestEnemyLordStrength = partyStrength;
+                            }
                         }
                     }
                     else if (IsFriendly(ownerFaction, partyFaction))
@@ -96,15 +140,19 @@ namespace CalradiaStrategicMind.Strategic
                 }
             }
 
-            var strongEnemyPressure = 0f;
-            var strongEnemyThreshold = garrisonStrength * 0.7f;
-            if (strongestEnemyStrength > strongEnemyThreshold)
+            var localDefenseStrength = garrisonStrength + nearbyFriendlyStrength * 0.45f;
+            var siegeThreatScore = hasActiveSiege
+                ? activeSiegeThreat + armySiegeThreat - localDefenseStrength * 0.25f
+                : armySiegeThreat - localDefenseStrength;
+            if (siegeThreatScore < 0f)
             {
-                strongEnemyPressure = (strongestEnemyStrength - strongEnemyThreshold) * 0.5f;
+                siegeThreatScore = 0f;
             }
 
-            var threatScore = nearbyEnemyStrength + strongEnemyPressure - garrisonStrength - nearbyFriendlyStrength * 0.35f;
-            var isThreatened = threatScore > 0f || nearbyEnemyStrength > garrisonStrength;
+            var regionalEnemyPressure = enemyLordPressure + armySiegeThreat * 0.15f;
+            var extremeLordPressure = nearbyEnemyLordPartyCount >= 4 && enemyLordPressure > localDefenseStrength * 2.5f;
+            var threatScore = siegeThreatScore + regionalEnemyPressure * 0.2f;
+            var isThreatened = hasActiveSiege || siegeThreatScore > 0f || extremeLordPressure;
 
             return new SettlementThreatReport(
                 GetSettlementName(settlement),
@@ -122,6 +170,20 @@ namespace CalradiaStrategicMind.Strategic
                 strongestFriendlyPartyName,
                 strongestFriendlyStrength,
                 threatScore,
+                siegeThreatScore,
+                armySiegeThreat,
+                regionalEnemyPressure,
+                armySiegeThreat,
+                enemyLordPressure,
+                activeSiegeThreat,
+                hasActiveSiege,
+                nearbyEnemyArmyMemberPartyCount,
+                nearbyEnemyArmyLeaderPartyCount,
+                nearbyEnemyLordPartyCount,
+                strongestEnemyArmyName,
+                strongestEnemyArmyStrength,
+                strongestEnemyLordName,
+                strongestEnemyLordStrength,
                 isThreatened);
         }
 
@@ -146,7 +208,7 @@ namespace CalradiaStrategicMind.Strategic
             return 0f;
         }
 
-        private bool ShouldCountNearbyParty(MobileParty party)
+        private static bool ShouldCountNearbyParty(MobileParty party, PartyObservationCategory category)
         {
             if (party == null)
             {
@@ -163,7 +225,6 @@ namespace CalradiaStrategicMind.Strategic
                 return false;
             }
 
-            var category = _partyClassifier.GetCategory(party);
             return category == PartyObservationCategory.LordParty
                 || category == PartyObservationCategory.ArmyParty;
         }
