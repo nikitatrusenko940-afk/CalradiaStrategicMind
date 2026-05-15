@@ -205,8 +205,11 @@ namespace CalradiaStrategicMind.Behaviors
 
                 LogSettlementThreat(settlement);
                 LogSettlementValue(settlement);
-                LogDefensePriority(settlement);
-                LogDefenseCandidates(settlement);
+                var defensePriorityReport = LogDefensePriority(settlement);
+                if (ShouldLogDefenseCandidates(defensePriorityReport))
+                {
+                    LogDefenseCandidates(settlement);
+                }
                 observedCount++;
             }
         }
@@ -240,11 +243,21 @@ namespace CalradiaStrategicMind.Behaviors
                 $"Observed settlement value: tick={_observationTick}, settlement='{report.SettlementName}', owner='{report.OwnerKingdomName}', type={report.SettlementType}, prosperity={report.Prosperity:0.00}, garrisonStrength={report.GarrisonStrength:0.00}, strategicValue={report.StrategicValue:0.00}, reason='{report.ValueReason}'");
         }
 
-        private void LogDefensePriority(Settlement settlement)
+        private DefensePriorityReport LogDefensePriority(Settlement settlement)
         {
             var report = _defensePriorityEvaluator.EvaluateDefensePriority(settlement);
             CsmLogger.Info(
                 $"Observed defense priority: tick={_observationTick}, settlement='{report.SettlementName}', owner='{report.OwnerKingdomName}', type={report.SettlementType}, threatScore={report.ThreatScore:0.00}, siegeThreatScore={report.SiegeThreatScore:0.00}, armySiegeThreat={report.ArmySiegeThreat:0.00}, regionalEnemyPressure={report.RegionalEnemyPressure:0.00}, strategicValue={report.StrategicValue:0.00}, threatComponent={report.ThreatComponent:0.00}, valueComponent={report.ValueComponent:0.00}, threatenedBonus={report.ThreatenedBonus:0.00}, defensePriority={report.DefensePriority:0.00}, hasActiveSiege={report.HasActiveSiege}, isThreatened={report.IsThreatened}, shouldRequestDefense={report.ShouldRequestDefense}, enemyPartyCount={report.EnemyPartyCount}, enemyArmyMemberPartyCount={report.EnemyArmyMemberPartyCount}, enemyArmyLeaderPartyCount={report.EnemyArmyLeaderPartyCount}, enemyLordPartyCount={report.EnemyLordPartyCount}, strongestEnemy='{report.StrongestEnemyPartyName}', strongestEnemyStrength={report.StrongestEnemyStrength:0.00}, nearestEnemy='{report.NearestEnemyPartyName}', nearestEnemyDistance={report.NearestEnemyDistance:0.00}, reason='{report.Reason}'");
+            return report;
+        }
+
+        private static bool ShouldLogDefenseCandidates(DefensePriorityReport report)
+        {
+            return report.ShouldRequestDefense
+                || report.HasActiveSiege
+                || report.EnemyArmyLeaderPartyCount > 0
+                || report.DefensePriority >= 35f
+                || report.IsThreatened;
         }
 
         private void LogDefenseCandidates(Settlement settlement)
