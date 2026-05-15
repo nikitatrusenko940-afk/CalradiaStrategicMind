@@ -3,22 +3,27 @@ using CalradiaStrategicMind.Strategic;
 using CalradiaStrategicMind.Utils;
 using TaleWorlds.CampaignSystem;
 using TaleWorlds.CampaignSystem.Party;
+using TaleWorlds.CampaignSystem.Settlements;
 
 namespace CalradiaStrategicMind.Behaviors
 {
     public class StrategicObservationBehavior : CampaignBehaviorBase
     {
         private const int MaxPartiesPerDailyObservation = 5;
+        private const int MaxSettlementsPerDailyObservation = 3;
 
         private readonly PartyStrengthEvaluator _partyStrengthEvaluator;
         private readonly PartyClassifier _partyClassifier;
+        private readonly SettlementThreatEvaluator _settlementThreatEvaluator;
         private int _nextPartyIndex;
+        private int _nextSettlementIndex;
         private int _observationTick;
 
         public StrategicObservationBehavior()
         {
             _partyStrengthEvaluator = new PartyStrengthEvaluator();
             _partyClassifier = new PartyClassifier();
+            _settlementThreatEvaluator = new SettlementThreatEvaluator();
         }
 
         public override void RegisterEvents()
@@ -29,12 +34,17 @@ namespace CalradiaStrategicMind.Behaviors
         public override void SyncData(IDataStore dataStore)
         {
             dataStore.SyncData("_nextPartyIndex", ref _nextPartyIndex);
+            dataStore.SyncData("_nextSettlementIndex", ref _nextSettlementIndex);
             dataStore.SyncData("_observationTick", ref _observationTick);
         }
 
         private void OnDailyTick()
         {
-            SafeExecutor.Run("Strategic observation daily tick", ObserveParties);
+            SafeExecutor.Run("Strategic observation daily tick", () =>
+            {
+                ObserveParties();
+                ObserveSettlements();
+            });
         }
 
         private void ObserveParties()
@@ -153,6 +163,64 @@ namespace CalradiaStrategicMind.Behaviors
 
             CsmLogger.Info(
                 $"Observed party strength: tick={_observationTick}, category={category}, party='{GetPartyName(party)}', leader='{leaderName}', regulars={regulars}, wounded={report.WoundedCount}, totalStrength={report.TotalStrength:0.00}, healthyStrength={report.HealthyTroopStrength:0.00}, woundedStrength={report.WoundedTroopStrength:0.00}, leaderStrength={report.LeaderStrength:0.00}");
+        }
+
+        private void ObserveSettlements()
+        {
+            var settlements = Settlement.All;
+            if (settlements == null)
+            {
+                CsmLogger.Warn("Settlement threat observation skipped: Settlement.All is null");
+                return;
+            }
+
+            var observedCount = 0;
+            var checkedCount = 0;
+            if (_nextSettlementIndex < 0 || _nextSettlementIndex >= settlements.Count)
+            {
+                _nextSettlementIndex = 0;
+            }
+
+            while (checkedCount < settlements.Count && observedCount < MaxSettlementsPerDailyObservation)
+            {
+                var settlement = settlements[_nextSettlementIndex];
+                _nextSettlementIndex++;
+                if (_nextSettlementIndex >= settlements.Count)
+                {
+                    _nextSettlementIndex = 0;
+                }
+
+                checkedCount++;
+                if (!ShouldObserveSettlement(settlement))
+                {
+                    continue;
+                }
+
+                LogSettlementThreat(settlement);
+                observedCount++;
+            }
+        }
+
+        private static bool ShouldObserveSettlement(Settlement settlement)
+        {
+            if (settlement == null)
+            {
+                return false;
+            }
+
+            if (!settlement.IsActive)
+            {
+                return false;
+            }
+
+            return settlement.IsTown || settlement.IsCastle;
+        }
+
+        private void LogSettlementThreat(Settlement settlement)
+        {
+            var report = _settlementThreatEvaluator.EvaluateSettlementThreat(settlement);
+            CsmLogger.Info(
+                $"Observed settlement threat: tick={_observationTick}, settlement='{report.SettlementName}', owner='{report.OwnerKingdomName}', type={report.SettlementType}, garrisonStrength={report.GarrisonStrength:0.00}, nearbyEnemyStrength={report.NearbyEnemyStrength:0.00}, nearbyEnemyPartyCount={report.NearbyEnemyPartyCount}, nearbyFriendlyStrength={report.NearbyFriendlyStrength:0.00}, nearbyFriendlyPartyCount={report.NearbyFriendlyPartyCount}, strongestEnemyPartyName='{report.StrongestEnemyPartyName}', strongestEnemyStrength={report.StrongestEnemyStrength:0.00}, nearestEnemyPartyName='{report.NearestEnemyPartyName}', nearestEnemyDistance={report.NearestEnemyDistance:0.00}, threatScore={report.ThreatScore:0.00}, isThreatened={report.IsThreatened}");
         }
 
         private static string GetPartyName(MobileParty party)
