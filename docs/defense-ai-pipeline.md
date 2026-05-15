@@ -14,7 +14,7 @@ Current state:
 
 ## Pipeline
 
-`PartyStrength` -> `PartyClassifier` -> `SettlementThreat` -> `SettlementValue` -> `DefensePriority` -> `DefenseCandidates` -> `DefenseCoverage` -> `DefenseNeed` -> `DefenseActionPlan` -> `DefenseActionPlanHistory` -> `DefenseDiagnosticsSummary` -> `DefenseEvaluationSnapshot`
+`PartyStrength` -> `PartyClassifier` -> `SettlementThreat` -> `SettlementValue` -> `DefensePriority` -> `DefenseCandidates` -> `DefenseCoverage` -> `DefenseNeed` -> `DefenseActionPlan` -> `DefenseActionPlanHistory` -> `DefenseDiagnosticsSummary` -> `DryRunDefenseController` -> `DefenseEvaluationSnapshot`
 
 ## Layers
 
@@ -128,6 +128,16 @@ Does not change any game state or execute any action.
 
 Provides a compact log line so future debugging does not require reading every detailed diagnostic line.
 
+### DryRunDefenseController
+
+Classes: `DryRunDefenseController`, `DryRunDefenseDecision`
+
+Reads the diagnostics summary, action plan, and stability report, then logs what a future defense controller would do.
+
+Does not change AI, does not move parties, does not issue orders, does not request reinforcements, and does not alter any game state.
+
+Provides dry-run decision diagnostics such as `WouldAct`, `WouldMonitor`, `WouldRequestReinforcement`, and `WouldRequestUrgentDefense`.
+
 ### DefenseEvaluationSnapshot
 
 Classes: `DefenseEvaluationSnapshot`, `DefenseEvaluationSnapshotBuilder`
@@ -161,6 +171,7 @@ Provides one read-only evaluation bundle to logging, action planning, history, a
 - `Observed defense action plan`
 - `Observed defense action stability`
 - `Observed defense summary`
+- `Observed dry-run defense decision`
 
 ## Future AI Integration Boundary
 
@@ -173,7 +184,9 @@ It should:
 - start in dry-run mode;
 - have a complete disable option.
 
-Until that separate task exists, all defense action outputs are diagnostics only.
+The current dry-run controller is still diagnostic only. It logs what the mod would do in the future, but it does not change AI and does not issue orders.
+
+Until a separate real integration task exists, all defense action outputs are diagnostics only.
 
 ## Next Possible Stages
 

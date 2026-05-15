@@ -19,6 +19,7 @@ namespace CalradiaStrategicMind.Behaviors
         private readonly DefenseActionPlanner _defenseActionPlanner;
         private readonly DefenseActionPlanHistory _defenseActionPlanHistory;
         private readonly DefenseDiagnosticsSummaryBuilder _defenseDiagnosticsSummaryBuilder;
+        private readonly DryRunDefenseController _dryRunDefenseController;
         private int _nextPartyIndex;
         private int _nextSettlementIndex;
         private int _observationTick;
@@ -31,6 +32,7 @@ namespace CalradiaStrategicMind.Behaviors
             _defenseActionPlanner = new DefenseActionPlanner();
             _defenseActionPlanHistory = new DefenseActionPlanHistory();
             _defenseDiagnosticsSummaryBuilder = new DefenseDiagnosticsSummaryBuilder();
+            _dryRunDefenseController = new DryRunDefenseController();
         }
 
         public override void RegisterEvents()
@@ -219,6 +221,8 @@ namespace CalradiaStrategicMind.Behaviors
                     LogDefenseActionStability(stabilityReport);
                     var summary = _defenseDiagnosticsSummaryBuilder.Build(snapshot, actionPlan, stabilityReport);
                     LogDefenseSummary(summary);
+                    var dryRunDecision = _dryRunDefenseController.EvaluateDryRun(summary, actionPlan, stabilityReport);
+                    LogDryRunDefenseDecision(dryRunDecision);
                 }
                 observedCount++;
             }
@@ -304,6 +308,12 @@ namespace CalradiaStrategicMind.Behaviors
         {
             CsmLogger.Info(
                 $"Observed defense summary: tick={_observationTick}, settlement='{summary.SettlementName}', owner='{summary.OwnerKingdomName}', threatType={summary.ThreatType}, action='{summary.RecommendedAction}', stableAction='{summary.StableRecommendedAction}', isStable={summary.IsStable}, shouldEscalate={summary.ShouldEscalate}, shouldDeescalate={summary.ShouldDeescalate}, priority={summary.DefensePriority:0.00}, coverageRatio={summary.DefenseCoverageRatio:0.00}, coverageStatus={summary.CoverageStatus}, primaryCandidate='{summary.PrimaryCandidateName}', primaryCandidateCategory={summary.PrimaryCandidateCategory}, confidence={summary.PlanConfidence:0.00}, reason='{summary.Reason}'");
+        }
+
+        private void LogDryRunDefenseDecision(DryRunDefenseDecision decision)
+        {
+            CsmLogger.Info(
+                $"Observed dry-run defense decision: tick={_observationTick}, settlement='{decision.SettlementName}', owner='{decision.OwnerKingdomName}', wouldAct={decision.WouldAct}, wouldMonitor={decision.WouldMonitor}, wouldRequestReinforcement={decision.WouldRequestReinforcement}, wouldRequestUrgentDefense={decision.WouldRequestUrgentDefense}, action='{decision.Action}', stableAction='{decision.StableAction}', primaryCandidate='{decision.PrimaryCandidateName}', primaryCandidateCategory={decision.PrimaryCandidateCategory}, planConfidence={decision.PlanConfidence:0.00}, reason='{decision.Reason}'");
         }
 
         private static string GetPartyName(MobileParty party)
