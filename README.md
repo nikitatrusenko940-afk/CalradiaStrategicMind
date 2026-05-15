@@ -2,7 +2,7 @@
 
 CalradiaStrategicMind is a Mount & Blade II: Bannerlord singleplayer mod for future improvements to strategic campaign AI.
 
-Current state: this repository contains only a minimal, safe project skeleton. It does not change lord behavior, army behavior, diplomacy, sieges, garrisons, or any other strategic AI systems yet.
+Current state: this repository contains a minimal, safe project skeleton and a read-only observation system. The mod can evaluate and log approximate party strength, but it does not change lord behavior, army behavior, diplomacy, sieges, garrisons, or any other strategic AI systems yet.
 
 ## Requirements
 
@@ -42,4 +42,6 @@ Then start the Bannerlord launcher, enable `Calradia Strategic Mind`, and launch
 - No Harmony dependency is included.
 - No MCM dependency is included.
 - No game DLLs are copied into Git.
+- The mod currently runs in observation mode only.
 - Logging and safe execution helpers are present so future systems can fail safely instead of crashing the campaign.
+- When loaded from the standard module layout, the log is written to `Modules\CalradiaStrategicMind\Logs\CalradiaStrategicMind.log`.

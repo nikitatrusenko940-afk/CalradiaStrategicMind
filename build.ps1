@@ -37,8 +37,11 @@ if (-not (Test-Path -LiteralPath $GameBinDir -PathType Container)) {
 }
 
 Assert-FileExists -Path (Join-Path $GameBinDir "TaleWorlds.Core.dll") -Description "TaleWorlds.Core.dll"
+Assert-FileExists -Path (Join-Path $GameBinDir "TaleWorlds.CampaignSystem.dll") -Description "TaleWorlds.CampaignSystem.dll"
 Assert-FileExists -Path (Join-Path $GameBinDir "TaleWorlds.Library.dll") -Description "TaleWorlds.Library.dll"
+Assert-FileExists -Path (Join-Path $GameBinDir "TaleWorlds.Localization.dll") -Description "TaleWorlds.Localization.dll"
 Assert-FileExists -Path (Join-Path $GameBinDir "TaleWorlds.MountAndBlade.dll") -Description "TaleWorlds.MountAndBlade.dll"
+Assert-FileExists -Path (Join-Path $GameBinDir "TaleWorlds.ObjectSystem.dll") -Description "TaleWorlds.ObjectSystem.dll"
 
 New-Item -ItemType Directory -Force -Path $ModuleBinDir | Out-Null
 New-Item -ItemType Directory -Force -Path $OutputBinDir | Out-Null
@@ -47,6 +50,10 @@ New-Item -ItemType Directory -Force -Path $OutputModuleDataDir | Out-Null
 dotnet build $ProjectPath `
     -c Release `
     -p:BannerlordDir="$BannerlordDir"
+
+if ($LASTEXITCODE -ne 0) {
+    throw "dotnet build failed with exit code $LASTEXITCODE"
+}
 
 $ProjectOutputDir = Join-Path $RepoRoot "Source\CalradiaStrategicMind\bin\Release"
 $ModDll = Join-Path $ProjectOutputDir "CalradiaStrategicMind.dll"

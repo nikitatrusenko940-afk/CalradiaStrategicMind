@@ -1,5 +1,7 @@
+using CalradiaStrategicMind.Behaviors;
 using CalradiaStrategicMind.Logging;
 using CalradiaStrategicMind.Utils;
+using TaleWorlds.CampaignSystem;
 using TaleWorlds.Core;
 using TaleWorlds.MountAndBlade;
 
@@ -32,6 +34,16 @@ namespace CalradiaStrategicMind
             SafeExecutor.Run("Game start", () =>
             {
                 CsmLogger.Info("Game start detected");
+
+                var campaignGameStarter = gameStarterObject as CampaignGameStarter;
+                if (campaignGameStarter == null)
+                {
+                    CsmLogger.Info("Game starter is not CampaignGameStarter; strategic observation behavior was not registered");
+                    return;
+                }
+
+                campaignGameStarter.AddBehavior(new StrategicObservationBehavior());
+                CsmLogger.Info("Strategic observation behavior registered");
             });
         }
     }
