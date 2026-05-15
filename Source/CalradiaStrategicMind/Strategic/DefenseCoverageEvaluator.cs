@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using CalradiaStrategicMind.Utils;
 using TaleWorlds.CampaignSystem.Settlements;
 
@@ -23,6 +24,17 @@ namespace CalradiaStrategicMind.Strategic
             return SafeExecutor.Run("Evaluate defense coverage", () => EvaluateDefenseCoverageCore(settlement), DefenseCoverageReport.Empty);
         }
 
+        public DefenseCoverageReport EvaluateDefenseCoverage(
+            Settlement settlement,
+            SettlementThreatReport threatReport,
+            List<DefenseCandidateReport> candidates)
+        {
+            return SafeExecutor.Run(
+                "Evaluate defense coverage from reports",
+                () => EvaluateDefenseCoverageCore(settlement, threatReport, candidates),
+                DefenseCoverageReport.Empty);
+        }
+
         private DefenseCoverageReport EvaluateDefenseCoverageCore(Settlement settlement)
         {
             if (settlement == null)
@@ -32,18 +44,34 @@ namespace CalradiaStrategicMind.Strategic
 
             var threatReport = _settlementThreatEvaluator.EvaluateSettlementThreat(settlement);
             var candidates = _defenseCandidateSelector.FindDefenseCandidates(settlement, 0);
+            return EvaluateDefenseCoverageCore(settlement, threatReport, candidates);
+        }
+
+        private static DefenseCoverageReport EvaluateDefenseCoverageCore(
+            Settlement settlement,
+            SettlementThreatReport threatReport,
+            List<DefenseCandidateReport> candidates)
+        {
+            if (settlement == null)
+            {
+                return DefenseCoverageReport.Empty;
+            }
+
             var suitableCandidateCount = 0;
             var suitableCandidateStrength = 0f;
-            for (var index = 0; index < candidates.Count; index++)
+            if (candidates != null)
             {
-                var candidate = candidates[index];
-                if (!candidate.IsSuitable)
+                for (var index = 0; index < candidates.Count; index++)
                 {
-                    continue;
-                }
+                    var candidate = candidates[index];
+                    if (!candidate.IsSuitable)
+                    {
+                        continue;
+                    }
 
-                suitableCandidateCount++;
-                suitableCandidateStrength += candidate.CandidateStrength;
+                    suitableCandidateCount++;
+                    suitableCandidateStrength += candidate.CandidateStrength;
+                }
             }
 
             var totalAvailableDefenseStrength = threatReport.GarrisonStrength

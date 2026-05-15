@@ -31,6 +31,17 @@ namespace CalradiaStrategicMind.Strategic
             return SafeExecutor.Run("Evaluate defense priority", () => EvaluateDefensePriorityCore(settlement), DefensePriorityReport.Empty);
         }
 
+        public DefensePriorityReport EvaluateDefensePriority(
+            Settlement settlement,
+            SettlementThreatReport threatReport,
+            SettlementValueReport valueReport)
+        {
+            return SafeExecutor.Run(
+                "Evaluate defense priority from reports",
+                () => EvaluateDefensePriorityCore(settlement, threatReport, valueReport),
+                DefensePriorityReport.Empty);
+        }
+
         private DefensePriorityReport EvaluateDefensePriorityCore(Settlement settlement)
         {
             if (settlement == null)
@@ -40,6 +51,19 @@ namespace CalradiaStrategicMind.Strategic
 
             var threatReport = _settlementThreatEvaluator.EvaluateSettlementThreat(settlement);
             var valueReport = _settlementValueEvaluator.EvaluateSettlementValue(settlement);
+            return EvaluateDefensePriorityCore(settlement, threatReport, valueReport);
+        }
+
+        private static DefensePriorityReport EvaluateDefensePriorityCore(
+            Settlement settlement,
+            SettlementThreatReport threatReport,
+            SettlementValueReport valueReport)
+        {
+            if (settlement == null)
+            {
+                return DefensePriorityReport.Empty;
+            }
+
             var siegeThreatComponent = GetScaledComponent(threatReport.SiegeThreatScore, MaxSiegeThreatComponent, ThreatScale);
             var areaPressureComponent = GetScaledComponent(threatReport.RegionalEnemyPressure, MaxAreaPressureComponent, AreaPressureScale);
             var threatComponent = siegeThreatComponent + areaPressureComponent;

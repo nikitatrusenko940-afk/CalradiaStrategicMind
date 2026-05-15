@@ -19,6 +19,17 @@ namespace CalradiaStrategicMind.Strategic
             return SafeExecutor.Run("Evaluate defense need", () => EvaluateDefenseNeedCore(settlement), DefenseNeedReport.Empty);
         }
 
+        public DefenseNeedReport EvaluateDefenseNeed(
+            Settlement settlement,
+            DefensePriorityReport priorityReport,
+            DefenseCoverageReport coverageReport)
+        {
+            return SafeExecutor.Run(
+                "Evaluate defense need from reports",
+                () => EvaluateDefenseNeedCore(settlement, priorityReport, coverageReport),
+                DefenseNeedReport.Empty);
+        }
+
         private DefenseNeedReport EvaluateDefenseNeedCore(Settlement settlement)
         {
             if (settlement == null)
@@ -28,6 +39,19 @@ namespace CalradiaStrategicMind.Strategic
 
             var priorityReport = _defensePriorityEvaluator.EvaluateDefensePriority(settlement);
             var coverageReport = _defenseCoverageEvaluator.EvaluateDefenseCoverage(settlement);
+            return EvaluateDefenseNeedCore(settlement, priorityReport, coverageReport);
+        }
+
+        private static DefenseNeedReport EvaluateDefenseNeedCore(
+            Settlement settlement,
+            DefensePriorityReport priorityReport,
+            DefenseCoverageReport coverageReport)
+        {
+            if (settlement == null)
+            {
+                return DefenseNeedReport.Empty;
+            }
+
             var recommendedAction = GetRecommendedAction(priorityReport, coverageReport);
             var needsDefenseAction = recommendedAction == "UrgentDefense" || recommendedAction == "Reinforce";
 
