@@ -16,6 +16,7 @@ namespace CalradiaStrategicMind.Behaviors
         private readonly PartyClassifier _partyClassifier;
         private readonly SettlementThreatEvaluator _settlementThreatEvaluator;
         private readonly SettlementValueEvaluator _settlementValueEvaluator;
+        private readonly DefensePriorityEvaluator _defensePriorityEvaluator;
         private int _nextPartyIndex;
         private int _nextSettlementIndex;
         private int _observationTick;
@@ -26,6 +27,7 @@ namespace CalradiaStrategicMind.Behaviors
             _partyClassifier = new PartyClassifier();
             _settlementThreatEvaluator = new SettlementThreatEvaluator();
             _settlementValueEvaluator = new SettlementValueEvaluator();
+            _defensePriorityEvaluator = new DefensePriorityEvaluator();
         }
 
         public override void RegisterEvents()
@@ -200,6 +202,7 @@ namespace CalradiaStrategicMind.Behaviors
 
                 LogSettlementThreat(settlement);
                 LogSettlementValue(settlement);
+                LogDefensePriority(settlement);
                 observedCount++;
             }
         }
@@ -231,6 +234,13 @@ namespace CalradiaStrategicMind.Behaviors
             var report = _settlementValueEvaluator.EvaluateSettlementValue(settlement);
             CsmLogger.Info(
                 $"Observed settlement value: tick={_observationTick}, settlement='{report.SettlementName}', owner='{report.OwnerKingdomName}', type={report.SettlementType}, prosperity={report.Prosperity:0.00}, garrisonStrength={report.GarrisonStrength:0.00}, strategicValue={report.StrategicValue:0.00}, reason='{report.ValueReason}'");
+        }
+
+        private void LogDefensePriority(Settlement settlement)
+        {
+            var report = _defensePriorityEvaluator.EvaluateDefensePriority(settlement);
+            CsmLogger.Info(
+                $"Observed defense priority: tick={_observationTick}, settlement='{report.SettlementName}', owner='{report.OwnerKingdomName}', type={report.SettlementType}, threatScore={report.ThreatScore:0.00}, strategicValue={report.StrategicValue:0.00}, threatComponent={report.ThreatComponent:0.00}, valueComponent={report.ValueComponent:0.00}, threatenedBonus={report.ThreatenedBonus:0.00}, defensePriority={report.DefensePriority:0.00}, isThreatened={report.IsThreatened}, shouldRequestDefense={report.ShouldRequestDefense}, reason='{report.Reason}'");
         }
 
         private static string GetPartyName(MobileParty party)
