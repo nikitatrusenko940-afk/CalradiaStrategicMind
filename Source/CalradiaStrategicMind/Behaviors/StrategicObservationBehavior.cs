@@ -267,7 +267,7 @@ namespace CalradiaStrategicMind.Behaviors
             {
                 var report = reports[index];
                 CsmLogger.Info(
-                    $"Observed defense candidate: tick={_observationTick}, settlement='{report.SettlementName}', candidate='{report.CandidatePartyName}', leader='{report.CandidateLeaderName}', category={report.CandidateCategory}, strength={report.CandidateStrength:0.00}, distance={report.DistanceToSettlement:0.00}, isArmyLeader={report.IsArmyLeader}, isArmyMember={report.IsArmyMember}, suitabilityScore={report.SuitabilityScore:0.00}, isSuitable={report.IsSuitable}, reason='{report.Reason}'");
+                    $"Observed defense candidate: tick={_observationTick}, settlement='{report.SettlementName}', candidate='{report.CandidatePartyName}', leader='{report.CandidateLeaderName}', category={report.CandidateCategory}, strength={report.CandidateStrength:0.00}, distance={report.DistanceToSettlement:0.00}, healthyTroops={report.HealthyTroopCount}, woundedTroops={report.WoundedTroopCount}, woundedRatio={report.WoundedRatio:0.00}, isArmyLeader={report.IsArmyLeader}, isArmyMember={report.IsArmyMember}, isWeak={report.IsWeak}, isTooFar={report.IsTooFar}, isBusy={report.IsBusy}, availabilityScore={report.AvailabilityScore:0.00}, suitabilityScore={report.SuitabilityScore:0.00}, isSuitable={report.IsSuitable}, reason='{report.Reason}'");
             }
         }
 

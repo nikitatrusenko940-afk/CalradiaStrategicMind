@@ -9,7 +9,10 @@ namespace CalradiaStrategicMind.Strategic
     public class DefenseCandidateSelector
     {
         private const float DefenseCandidateSearchRadius = 120f;
+        private const float TooFarDistance = 95f;
         private const float MinimumSuitableScore = 20f;
+        private const int MinimumHealthyTroops = 40;
+        private const float HighWoundedRatio = 0.35f;
 
         private readonly PartyStrengthEvaluator _partyStrengthEvaluator;
         private readonly PartyClassifier _partyClassifier;
@@ -67,22 +70,51 @@ namespace CalradiaStrategicMind.Strategic
                 var isArmyMember = party.Army != null;
                 var isArmyLeader = isArmyMember && party.Army.LeaderParty == party;
                 var armyLeaderNearby = isArmyMember && !isArmyLeader && IsArmyLeaderNearby(party, settlementPosition);
-                var strength = _partyStrengthEvaluator.EvaluatePartyStrength(party);
-                var suitabilityScore = GetSuitabilityScore(strength, distance, category, isArmyLeader, isArmyMember);
-                var isSuitable = suitabilityScore >= MinimumSuitableScore && !armyLeaderNearby;
+                var strengthReport = _partyStrengthEvaluator.EvaluatePartyStrengthReport(party);
+                var healthyTroops = strengthReport.TroopCount - strengthReport.WoundedCount;
+                if (healthyTroops < 0)
+                {
+                    healthyTroops = 0;
+                }
+
+                var woundedRatio = GetWoundedRatio(strengthReport.TroopCount, strengthReport.WoundedCount);
+                var isWeak = healthyTroops < MinimumHealthyTroops;
+                var isTooFar = distance > TooFarDistance;
+                var isBusy = IsBusy(party);
+                var availabilityScore = GetAvailabilityScore(healthyTroops, woundedRatio, isTooFar, isBusy, isArmyMember, isArmyLeader);
+                var suitabilityScore = GetSuitabilityScore(
+                    strengthReport.TotalStrength,
+                    distance,
+                    category,
+                    isArmyLeader,
+                    isArmyMember,
+                    availabilityScore);
+                var isSuitable = suitabilityScore >= MinimumSuitableScore
+                    && !armyLeaderNearby
+                    && !isTooFar
+                    && !isWeak
+                    && woundedRatio < HighWoundedRatio
+                    && !isBusy;
 
                 reports.Add(new DefenseCandidateReport(
                     GetSettlementName(settlement),
                     GetPartyName(party),
                     GetLeaderName(party),
                     category,
-                    strength,
+                    strengthReport.TotalStrength,
                     distance,
+                    healthyTroops,
+                    strengthReport.WoundedCount,
+                    woundedRatio,
                     isArmyLeader,
                     isArmyMember,
+                    isWeak,
+                    isTooFar,
+                    isBusy,
+                    availabilityScore,
                     isSuitable,
                     suitabilityScore,
-                    GetReason(distance, isArmyLeader, isArmyMember, armyLeaderNearby, isSuitable)));
+                    GetReason(isArmyLeader, isArmyMember, armyLeaderNearby, isSuitable, isTooFar, isWeak, woundedRatio, isBusy)));
             }
 
             reports.Sort(CompareCandidates);
@@ -141,12 +173,76 @@ namespace CalradiaStrategicMind.Strategic
             return ownerFaction == partyFaction || ownerFaction == partyFaction.MapFaction;
         }
 
+        private static bool IsBusy(MobileParty party)
+        {
+            if (party == null)
+            {
+                return false;
+            }
+
+            return party.SiegeEvent != null
+                || party.BesiegedSettlement != null
+                || party.BesiegerCamp != null;
+        }
+
+        private static float GetWoundedRatio(int troopCount, int woundedCount)
+        {
+            if (troopCount <= 0 || woundedCount <= 0)
+            {
+                return 0f;
+            }
+
+            return (float)woundedCount / troopCount;
+        }
+
+        private static float GetAvailabilityScore(
+            int healthyTroops,
+            float woundedRatio,
+            bool isTooFar,
+            bool isBusy,
+            bool isArmyMember,
+            bool isArmyLeader)
+        {
+            var score = 100f;
+            if (isTooFar)
+            {
+                score -= 25f;
+            }
+
+            if (woundedRatio >= HighWoundedRatio)
+            {
+                score -= 35f;
+            }
+            else
+            {
+                score -= woundedRatio * 40f;
+            }
+
+            if (healthyTroops < MinimumHealthyTroops)
+            {
+                score -= 30f;
+            }
+
+            if (isBusy)
+            {
+                score -= 40f;
+            }
+
+            if (isArmyMember && !isArmyLeader)
+            {
+                score -= 15f;
+            }
+
+            return score < 0f ? 0f : score;
+        }
+
         private static float GetSuitabilityScore(
             float strength,
             float distance,
             PartyObservationCategory category,
             bool isArmyLeader,
-            bool isArmyMember)
+            bool isArmyMember,
+            float availabilityScore)
         {
             var distanceScore = DefenseCandidateSearchRadius - distance;
             if (distanceScore < 0f)
@@ -168,6 +264,7 @@ namespace CalradiaStrategicMind.Strategic
                 score -= 15f;
             }
 
+            score *= availabilityScore / 100f;
             return score < 0f ? 0f : score;
         }
 
@@ -183,20 +280,38 @@ namespace CalradiaStrategicMind.Strategic
         }
 
         private static string GetReason(
-            float distance,
             bool isArmyLeader,
             bool isArmyMember,
             bool armyLeaderNearby,
-            bool isSuitable)
+            bool isSuitable,
+            bool isTooFar,
+            bool isWeak,
+            float woundedRatio,
+            bool isBusy)
         {
             if (armyLeaderNearby)
             {
                 return "Army member: leader party is a better main candidate";
             }
 
-            if (distance > DefenseCandidateSearchRadius)
+            if (isTooFar)
             {
-                return "Too far from settlement";
+                return "Unsuitable: too far";
+            }
+
+            if (woundedRatio >= HighWoundedRatio)
+            {
+                return "Unsuitable: too many wounded";
+            }
+
+            if (isWeak)
+            {
+                return "Unsuitable: weak party";
+            }
+
+            if (isBusy)
+            {
+                return "Unsuitable: already involved in siege";
             }
 
             if (isArmyLeader)
@@ -214,7 +329,7 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             return isSuitable
-                ? "Suitable: nearby friendly lord party"
+                ? "Suitable: nearby strong friendly lord party"
                 : "Nearby friendly lord party, but suitability is low";
         }
 
