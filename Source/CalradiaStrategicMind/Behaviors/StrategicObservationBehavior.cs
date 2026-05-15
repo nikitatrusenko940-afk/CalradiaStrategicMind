@@ -16,6 +16,7 @@ namespace CalradiaStrategicMind.Behaviors
         private readonly PartyStrengthEvaluator _partyStrengthEvaluator;
         private readonly PartyClassifier _partyClassifier;
         private readonly DefenseEvaluationSnapshotBuilder _defenseEvaluationSnapshotBuilder;
+        private readonly DefenseActionPlanner _defenseActionPlanner;
         private int _nextPartyIndex;
         private int _nextSettlementIndex;
         private int _observationTick;
@@ -25,6 +26,7 @@ namespace CalradiaStrategicMind.Behaviors
             _partyStrengthEvaluator = new PartyStrengthEvaluator();
             _partyClassifier = new PartyClassifier();
             _defenseEvaluationSnapshotBuilder = new DefenseEvaluationSnapshotBuilder();
+            _defenseActionPlanner = new DefenseActionPlanner();
         }
 
         public override void RegisterEvents()
@@ -206,6 +208,8 @@ namespace CalradiaStrategicMind.Behaviors
                     LogDefenseCandidates(snapshot.CandidateReports);
                     LogDefenseCoverage(snapshot.CoverageReport);
                     LogDefenseNeed(snapshot.NeedReport);
+                    var actionPlan = _defenseActionPlanner.CreatePlan(snapshot);
+                    LogDefenseActionPlan(actionPlan);
                 }
                 observedCount++;
             }
@@ -273,6 +277,12 @@ namespace CalradiaStrategicMind.Behaviors
         {
             CsmLogger.Info(
                 $"Observed defense need: tick={_observationTick}, settlement='{report.SettlementName}', owner='{report.OwnerKingdomName}', type={report.SettlementType}, defensePriority={report.DefensePriority:0.00}, defenseCoverageRatio={report.DefenseCoverageRatio:0.00}, isThreatened={report.IsThreatened}, hasActiveSiege={report.HasActiveSiege}, hasDirectSiegeThreat={report.HasDirectSiegeThreat}, hasArmyPresence={report.HasArmyPresence}, needsReinforcement={report.NeedsReinforcement}, suitableCandidateCount={report.SuitableCandidateCount}, needsDefenseAction={report.NeedsDefenseAction}, recommendedAction='{report.RecommendedAction}', reason='{report.Reason}'");
+        }
+
+        private void LogDefenseActionPlan(DefenseActionPlan plan)
+        {
+            CsmLogger.Info(
+                $"Observed defense action plan: tick={_observationTick}, settlement='{plan.SettlementName}', owner='{plan.OwnerKingdomName}', recommendedAction='{plan.RecommendedAction}', needsDefenseAction={plan.NeedsDefenseAction}, defensePriority={plan.DefensePriority:0.00}, defenseCoverageRatio={plan.DefenseCoverageRatio:0.00}, selectedCandidateCount={plan.SelectedCandidateCount}, selectedCandidateStrength={plan.SelectedCandidateStrength:0.00}, primaryCandidate='{plan.PrimaryCandidateName}', primaryCandidateCategory={plan.PrimaryCandidateCategory}, primaryCandidateStrength={plan.PrimaryCandidateStrength:0.00}, primaryCandidateDistance={plan.PrimaryCandidateDistance:0.00}, planConfidence={plan.PlanConfidence:0.00}, reason='{plan.Reason}'");
         }
 
         private static string GetPartyName(MobileParty party)
