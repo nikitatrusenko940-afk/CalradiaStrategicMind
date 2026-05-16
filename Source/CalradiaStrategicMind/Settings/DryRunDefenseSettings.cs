@@ -11,5 +11,6 @@ namespace CalradiaStrategicMind.Settings
         public static bool EnableDefenseActionHistory = true;
         public static bool EnableDryRunDecisionHistory = true;
         public static bool EnableDryRunDailyReport = true;
+        public static bool EnableDefenseScoreSimulation = true;
     }
 }
