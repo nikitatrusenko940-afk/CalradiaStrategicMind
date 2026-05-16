@@ -8,5 +8,6 @@ namespace CalradiaStrategicMind.Settings
         public static bool EnableDefenseSummaryLogs = true;
         public static bool EnableDryRunDefenseController = true;
         public static bool EnableDefenseActionHistory = true;
+        public static bool EnableDryRunDecisionHistory = true;
     }
 }

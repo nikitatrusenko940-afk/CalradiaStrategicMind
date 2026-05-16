@@ -14,7 +14,7 @@ Current state:
 
 ## Pipeline
 
-`PartyStrength` -> `PartyClassifier` -> `SettlementThreat` -> `SettlementValue` -> `DefensePriority` -> `DefenseCandidates` -> `DefenseCoverage` -> `DefenseNeed` -> `DefenseEvaluationSnapshot` -> `DefenseActionPlan` -> `DefenseActionPlanHistory` -> `DefenseDiagnosticsSummary` -> `DryRunDefenseController`
+`PartyStrength` -> `PartyClassifier` -> `SettlementThreat` -> `SettlementValue` -> `DefensePriority` -> `DefenseCandidates` -> `DefenseCoverage` -> `DefenseNeed` -> `DefenseEvaluationSnapshot` -> `DefenseActionPlan` -> `DefenseActionPlanHistory` -> `DefenseDiagnosticsSummary` -> `DryRunDefenseController` -> `DryRunDecisionHistory`
 
 ## Layers
 
@@ -138,6 +138,16 @@ Does not change AI, does not move parties, does not issue orders, does not reque
 
 Provides dry-run decision diagnostics such as `WouldAct`, `WouldMonitor`, `WouldRequestReinforcement`, and `WouldRequestUrgentDefense`.
 
+### DryRunDecisionHistory
+
+Classes: `DryRunDefenseDecisionHistory`, `DryRunDefenseDecisionHistoryEntry`, `DryRunDefenseDecisionStabilityReport`
+
+Tracks recent runtime-only dry-run decisions per settlement name. It stores up to five entries and evaluates whether dry-run actions, monitor signals, and would-act signals are stable.
+
+Does not persist data to savegames, does not issue orders, does not request reinforcements, and does not change AI.
+
+Provides dry-run stability diagnostics to logs so future AI integration can avoid reacting to a single random tick.
+
 ### DefenseEvaluationSnapshot
 
 Classes: `DefenseEvaluationSnapshot`, `DefenseEvaluationSnapshotBuilder`
@@ -158,6 +168,7 @@ Provides one read-only evaluation bundle to logging, action planning, history, s
 - Reinforce should require stable repeated need.
 - UrgentDefense can escalate immediately.
 - Runtime history is not saved yet and resets after game restart.
+- Dry-run decision history is runtime-only and resets after game restart.
 
 ## Current Logs
 
@@ -172,6 +183,7 @@ Provides one read-only evaluation bundle to logging, action planning, history, s
 - `Observed defense action stability`
 - `Observed defense summary`
 - `Observed dry-run defense decision`
+- `Observed dry-run defense stability`
 
 ## Future AI Integration Boundary
 
@@ -201,6 +213,7 @@ Current settings:
 - `EnableDefenseSummaryLogs`: enables or disables `Observed defense summary` logs.
 - `EnableDryRunDefenseController`: enables or disables dry-run decision evaluation and `Observed dry-run defense decision` logs.
 - `EnableDefenseActionHistory`: enables or disables runtime action-plan history and stability logging.
+- `EnableDryRunDecisionHistory`: enables or disables runtime dry-run decision history and `Observed dry-run defense stability` logs.
 
 These settings are intended as a simple bridge toward future configuration. MCM must only be added in a separate explicit task.
 
