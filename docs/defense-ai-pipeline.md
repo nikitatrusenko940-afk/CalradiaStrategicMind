@@ -14,7 +14,7 @@ Current state:
 
 ## Pipeline
 
-`PartyStrength` -> `PartyClassifier` -> `SettlementThreat` -> `SettlementValue` -> `DefensePriority` -> `DefenseCandidates` -> `DefenseCoverage` -> `DefenseNeed` -> `DefenseEvaluationSnapshot` -> `DefenseActionPlan` -> `DefenseActionPlanHistory` -> `DefenseDiagnosticsSummary` -> `DryRunDefenseController` -> `DryRunDecisionHistory` -> `DryRunDefenseReportAggregator` -> `DefenseControllerScaffold`
+`PartyStrength` -> `PartyClassifier` -> `SettlementThreat` -> `SettlementValue` -> `DefensePriority` -> `DefenseCandidates` -> `DefenseCoverage` -> `DefenseNeed` -> `DefenseEvaluationSnapshot` -> `DefenseActionPlan` -> `DefenseActionPlanHistory` -> `DefenseDiagnosticsSummary` -> `DryRunDefenseController` -> `DryRunDecisionHistory` -> `DryRunDefenseReportAggregator` -> `DefenseControllerScaffold` -> `DefenseControllerSafetyGuard`
 
 ## Layers
 
@@ -174,6 +174,18 @@ It does not issue orders, does not move parties, does not change armies, settlem
 
 Provides the `Observed defense controller scaffold` short-log line.
 
+### DefenseControllerSafetyGuard
+
+Classes: `DefenseControllerSafetyGuard`, `DefenseControllerSafetyReport`
+
+Evaluates whether a future real defense controller would pass basic safety gates.
+
+The guard checks that the real controller is enabled, controller execution is not blocked, dry-run requests an action, dry-run has a stable would-act signal, the dry-run action is executable, and a primary candidate exists.
+
+`Allowed=true` is only a diagnostic signal. It does not execute an action, does not issue orders, does not move parties, and does not change armies, settlements, kingdoms, diplomacy, or AI behavior.
+
+Provides the `Observed defense controller safety` short-log line.
+
 ### DefenseEvaluationSnapshot
 
 Classes: `DefenseEvaluationSnapshot`, `DefenseEvaluationSnapshotBuilder`
@@ -197,6 +209,7 @@ Provides one read-only evaluation bundle to logging, action planning, history, s
 - Dry-run decision history is runtime-only and resets after game restart.
 - Dry-run daily reports are runtime-only summaries for the current observation tick.
 - The real defense controller scaffold is disabled by default and remains non-executing even if enabled in code.
+- The defense controller safety guard only reports whether future execution would pass safety checks; `Allowed=true` does not execute anything.
 
 ## Current Logs
 
@@ -214,6 +227,7 @@ Provides one read-only evaluation bundle to logging, action planning, history, s
 - `Observed dry-run defense stability`
 - `Observed dry-run defense daily report`
 - `Observed defense controller scaffold`
+- `Observed defense controller safety`
 
 ## Future AI Integration Boundary
 
