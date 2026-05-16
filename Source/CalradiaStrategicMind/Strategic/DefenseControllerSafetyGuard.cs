@@ -26,7 +26,7 @@ namespace CalradiaStrategicMind.Strategic
             DryRunDefenseDecisionStabilityReport dryRunStabilityReport,
             DefenseControllerDecision controllerDecision)
         {
-            if (!DryRunDefenseSettings.EnableRealDefenseController)
+            if (!DefenseControllerSettings.EnableRealDefenseController)
             {
                 return CreateReport(summary, actionPlan, dryRunDecision, dryRunStabilityReport, controllerDecision, false, "Real defense controller disabled");
             }
@@ -80,7 +80,7 @@ namespace CalradiaStrategicMind.Strategic
                 summary.SettlementName,
                 summary.OwnerKingdomName,
                 allowed,
-                DryRunDefenseSettings.EnableRealDefenseController,
+                DefenseControllerSettings.EnableRealDefenseController,
                 dryRunDecision.WouldAct,
                 dryRunStabilityReport.HasStableWouldActSignal,
                 controllerDecision.Action,

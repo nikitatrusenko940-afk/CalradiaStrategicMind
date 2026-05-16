@@ -222,14 +222,14 @@ namespace CalradiaStrategicMind.Behaviors
                     continue;
                 }
 
-                if (!DryRunDefenseSettings.EnableDefenseDiagnostics)
+                if (!DefenseDiagnosticsSettings.EnableDefenseDiagnostics)
                 {
                     observedCount++;
                     continue;
                 }
 
                 var snapshot = _defenseEvaluationSnapshotBuilder.Build(settlement, MaxDefenseCandidatesPerSettlement);
-                if (DryRunDefenseSettings.EnableVerboseDefenseLogs)
+                if (DefenseDiagnosticsSettings.EnableVerboseDefenseLogs)
                 {
                     LogSettlementThreat(snapshot.ThreatReport);
                     LogSettlementValue(snapshot.ValueReport);
@@ -238,31 +238,31 @@ namespace CalradiaStrategicMind.Behaviors
 
                 if (ShouldLogDefenseCandidates(snapshot.PriorityReport))
                 {
-                    if (DryRunDefenseSettings.EnableDefenseCandidateLogs)
+                    if (DefenseDiagnosticsSettings.EnableDefenseCandidateLogs)
                     {
                         LogDefenseCandidates(snapshot.CandidateReports);
                     }
 
-                    if (DryRunDefenseSettings.EnableVerboseDefenseLogs)
+                    if (DefenseDiagnosticsSettings.EnableVerboseDefenseLogs)
                     {
                         LogDefenseCoverage(snapshot.CoverageReport);
                         LogDefenseNeed(snapshot.NeedReport);
                     }
 
                     var actionPlan = _defenseActionPlanner.CreatePlan(snapshot);
-                    if (DryRunDefenseSettings.EnableVerboseDefenseLogs)
+                    if (DefenseDiagnosticsSettings.EnableVerboseDefenseLogs)
                     {
                         LogDefenseActionPlan(actionPlan);
                     }
 
                     var stabilityReport = GetStabilityReport(actionPlan);
                     var summary = _defenseDiagnosticsSummaryBuilder.Build(snapshot, actionPlan, stabilityReport);
-                    if (DryRunDefenseSettings.EnableDefenseSummaryLogs)
+                    if (DefenseDiagnosticsSettings.EnableDefenseSummaryLogs)
                     {
                         LogDefenseSummary(summary);
                     }
 
-                    if (DryRunDefenseSettings.EnableDryRunDefenseController)
+                    if (DefenseDryRunSettings.EnableDryRunDefenseController)
                     {
                         var dryRunDecision = _dryRunDefenseController.EvaluateDryRun(summary, actionPlan, stabilityReport);
                         LogDryRunDefenseDecision(dryRunDecision);
@@ -274,7 +274,7 @@ namespace CalradiaStrategicMind.Behaviors
                         LogDefenseControllerSafety(defenseControllerSafetyReport);
                         var commandReport = _defenseCommandInterface.RequestReinforcement(summary, actionPlan, dryRunDecision, defenseControllerSafetyReport);
                         LogDefenseCommand(commandReport);
-                        if (DryRunDefenseSettings.EnableDefenseScoreSimulation)
+                        if (DefenseScoreSimulationSettings.EnableDefenseScoreSimulation)
                         {
                             var scoreSimulationReport = _defenseScoreSimulator.Simulate(summary, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerSafetyReport);
                             LogDefenseScoreSimulation(scoreSimulationReport);
@@ -285,7 +285,7 @@ namespace CalradiaStrategicMind.Behaviors
                 observedCount++;
             }
 
-            if (DryRunDefenseSettings.EnableDryRunDailyReport)
+            if (DefenseDryRunSettings.EnableDryRunDailyReport)
             {
                 var dailyReport = _dryRunDefenseReportAggregator.BuildReport();
                 if (dailyReport.TotalEvaluatedSettlements > 0)
@@ -294,7 +294,7 @@ namespace CalradiaStrategicMind.Behaviors
                 }
             }
 
-            if (DryRunDefenseSettings.EnableDefenseScoreSimulationSummary)
+            if (DefenseScoreSimulationSettings.EnableDefenseScoreSimulationSummary)
             {
                 var scoreSimulationSummary = _defenseScoreSimulationSummaryBuilder.BuildSummary();
                 if (scoreSimulationSummary.TotalScoreSimulations > 0)
@@ -376,7 +376,7 @@ namespace CalradiaStrategicMind.Behaviors
 
         private DefenseActionPlanStabilityReport GetStabilityReport(DefenseActionPlan actionPlan)
         {
-            if (!DryRunDefenseSettings.EnableDefenseActionHistory)
+            if (!DefenseDryRunSettings.EnableDefenseActionHistory)
             {
                 return new DefenseActionPlanStabilityReport(
                     actionPlan.SettlementName,
@@ -394,7 +394,7 @@ namespace CalradiaStrategicMind.Behaviors
 
             _defenseActionPlanHistory.Record(actionPlan, _observationTick);
             var stabilityReport = _defenseActionPlanHistory.EvaluateStability(actionPlan, _observationTick);
-            if (DryRunDefenseSettings.EnableVerboseDefenseLogs)
+            if (DefenseDiagnosticsSettings.EnableVerboseDefenseLogs)
             {
                 LogDefenseActionStability(stabilityReport);
             }
@@ -458,7 +458,7 @@ namespace CalradiaStrategicMind.Behaviors
 
         private DryRunDefenseDecisionStabilityReport GetDryRunStabilityReport(DryRunDefenseDecision decision)
         {
-            if (!DryRunDefenseSettings.EnableDryRunDecisionHistory)
+            if (!DefenseDryRunSettings.EnableDryRunDecisionHistory)
             {
                 return new DryRunDefenseDecisionStabilityReport(
                     decision.SettlementName,
