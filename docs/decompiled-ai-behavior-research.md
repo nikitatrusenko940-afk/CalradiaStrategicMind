@@ -241,6 +241,7 @@ Safe current option:
 
 - Keep `DefenseCommandInterface` diagnostic-only.
 - Use `DefenseScoreSimulation` as a diagnostic-only score calculation without mutating `PartyThinkParams`.
+- Use `DefenseScoreSimulationDailySummary` as diagnostic-only aggregation of score simulation reports without mutating `PartyThinkParams`.
 - Keep `WouldAddScore=false` and never call `AddBehaviorScore`, `SetBehaviorScore`, `SetPartyAiAction`, or `MobileParty.SetMove...`.
 
 Unsafe current option:
@@ -252,6 +253,7 @@ Unsafe current option:
 - Do not implement `RequestReinforcementCandidate` yet.
 - Add documentation-only notes to the existing safety docs if needed.
 - Continue with diagnostic-only `DefenseScoreSimulation`, which mirrors score inputs but never writes to `PartyThinkParams`.
+- Continue with diagnostic-only `DefenseScoreSimulationDailySummary` for compact observation tick/day review.
 - If considering a future prototype, make it blocked-only first:
   - compute the proposed `AIBehaviorData`;
   - compute the proposed score;
