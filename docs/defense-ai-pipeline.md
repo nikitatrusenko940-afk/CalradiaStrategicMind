@@ -14,7 +14,7 @@ Current state:
 
 ## Pipeline
 
-`PartyStrength` -> `PartyClassifier` -> `SettlementThreat` -> `SettlementValue` -> `DefensePriority` -> `DefenseCandidates` -> `DefenseCoverage` -> `DefenseNeed` -> `DefenseEvaluationSnapshot` -> `DefenseActionPlan` -> `DefenseActionPlanHistory` -> `DefenseDiagnosticsSummary` -> `DryRunDefenseController` -> `DryRunDecisionHistory` -> `DryRunDefenseReportAggregator` -> `DefenseControllerScaffold` -> `DefenseControllerSafetyGuard` -> `DefenseCommandInterface`
+`PartyStrength` -> `PartyClassifier` -> `SettlementThreat` -> `SettlementValue` -> `DefensePriority` -> `DefenseCandidates` -> `DefenseCoverage` -> `DefenseNeed` -> `DefenseEvaluationSnapshot` -> `DefenseActionPlan` -> `DefenseActionPlanHistory` -> `DefenseDiagnosticsSummary` -> `DryRunDefenseController` -> `DryRunDecisionHistory` -> `DryRunDefenseReportAggregator` -> `DefenseControllerScaffold` -> `DefenseControllerSafetyGuard` -> `DefenseCommandInterface` -> `DefenseScoreSimulation`
 
 ## Layers
 
@@ -200,6 +200,20 @@ It does not issue orders, does not move parties, does not change party AI, armie
 
 Provides the `Observed defense command` short-log line.
 
+### DefenseScoreSimulation
+
+Classes: `DefenseScoreSimulator`, `DefenseScoreSimulationReport`
+
+Calculates a hypothetical defense score from existing diagnostic fields only.
+
+The formula is `DefensePriority * 0.6 + PlanConfidence * 0.4`, clamped to `0..100`.
+
+It does not create `AIBehaviorData`, does not access `PartyThinkParams`, does not call `AddBehaviorScore` or `SetBehaviorScore`, does not call `SetPartyAiAction`, and does not move parties.
+
+`WouldAddScore` is always `false`; this layer is simulation only.
+
+Provides the `Observed defense score simulation` short-log line.
+
 ### DefenseEvaluationSnapshot
 
 Classes: `DefenseEvaluationSnapshot`, `DefenseEvaluationSnapshotBuilder`
@@ -225,6 +239,7 @@ Provides one read-only evaluation bundle to logging, action planning, history, s
 - The real defense controller scaffold is disabled by default and remains non-executing even if enabled in code.
 - The defense controller safety guard only reports whether future execution would pass safety checks; `Allowed=true` does not execute anything.
 - The defense command interface only reports blocked or allowed diagnostic commands; `WasExecuted` remains `false`.
+- The defense score simulation calculates only hypothetical scores and never writes to `PartyThinkParams`.
 
 ## Current Logs
 
@@ -244,6 +259,7 @@ Provides one read-only evaluation bundle to logging, action planning, history, s
 - `Observed defense controller scaffold`
 - `Observed defense controller safety`
 - `Observed defense command`
+- `Observed defense score simulation`
 
 ## Future AI Integration Boundary
 
@@ -276,6 +292,7 @@ Current settings:
 - `EnableDefenseActionHistory`: enables or disables runtime action-plan history and stability logging.
 - `EnableDryRunDecisionHistory`: enables or disables runtime dry-run decision history and `Observed dry-run defense stability` logs.
 - `EnableDryRunDailyReport`: enables or disables the runtime daily dry-run report log.
+- `EnableDefenseScoreSimulation`: enables or disables diagnostic-only hypothetical defense score simulation logs.
 
 These settings are intended as a simple bridge toward future configuration. MCM must only be added in a separate explicit task.
 
