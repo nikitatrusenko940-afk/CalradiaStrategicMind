@@ -14,7 +14,7 @@ Current state:
 
 ## Pipeline
 
-`PartyStrength` -> `PartyClassifier` -> `SettlementThreat` -> `SettlementValue` -> `DefensePriority` -> `DefenseCandidates` -> `DefenseCoverage` -> `DefenseNeed` -> `DefenseEvaluationSnapshot` -> `DefenseActionPlan` -> `DefenseActionPlanHistory` -> `DefenseDiagnosticsSummary` -> `DryRunDefenseController` -> `DryRunDecisionHistory` -> `DryRunDefenseReportAggregator` -> `DefenseControllerScaffold` -> `DefenseControllerSafetyGuard`
+`PartyStrength` -> `PartyClassifier` -> `SettlementThreat` -> `SettlementValue` -> `DefensePriority` -> `DefenseCandidates` -> `DefenseCoverage` -> `DefenseNeed` -> `DefenseEvaluationSnapshot` -> `DefenseActionPlan` -> `DefenseActionPlanHistory` -> `DefenseDiagnosticsSummary` -> `DryRunDefenseController` -> `DryRunDecisionHistory` -> `DryRunDefenseReportAggregator` -> `DefenseControllerScaffold` -> `DefenseControllerSafetyGuard` -> `DefenseCommandInterface`
 
 ## Layers
 
@@ -186,6 +186,20 @@ The guard checks that the real controller is enabled, controller execution is no
 
 Provides the `Observed defense controller safety` short-log line.
 
+### DefenseCommandInterface
+
+Classes: `DefenseCommandInterface`, `DefenseCommandReport`
+
+Provides a future command boundary for defense controller actions.
+
+The command interface currently does not execute actions. `RequestReinforcement` only reports whether the safety guard blocked or allowed the diagnostic command.
+
+`WasExecuted` is always `false`, even when `IsAllowed=true`.
+
+It does not issue orders, does not move parties, does not change party AI, armies, settlements, kingdoms, diplomacy, or any other game state.
+
+Provides the `Observed defense command` short-log line.
+
 ### DefenseEvaluationSnapshot
 
 Classes: `DefenseEvaluationSnapshot`, `DefenseEvaluationSnapshotBuilder`
@@ -210,6 +224,7 @@ Provides one read-only evaluation bundle to logging, action planning, history, s
 - Dry-run daily reports are runtime-only summaries for the current observation tick.
 - The real defense controller scaffold is disabled by default and remains non-executing even if enabled in code.
 - The defense controller safety guard only reports whether future execution would pass safety checks; `Allowed=true` does not execute anything.
+- The defense command interface only reports blocked or allowed diagnostic commands; `WasExecuted` remains `false`.
 
 ## Current Logs
 
@@ -228,6 +243,7 @@ Provides one read-only evaluation bundle to logging, action planning, history, s
 - `Observed dry-run defense daily report`
 - `Observed defense controller scaffold`
 - `Observed defense controller safety`
+- `Observed defense command`
 
 ## Future AI Integration Boundary
 

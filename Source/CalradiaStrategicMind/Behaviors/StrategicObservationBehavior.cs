@@ -25,6 +25,7 @@ namespace CalradiaStrategicMind.Behaviors
         private readonly DryRunDefenseReportAggregator _dryRunDefenseReportAggregator;
         private readonly DefenseController _defenseController;
         private readonly DefenseControllerSafetyGuard _defenseControllerSafetyGuard;
+        private readonly DefenseCommandInterface _defenseCommandInterface;
         private int _nextPartyIndex;
         private int _nextSettlementIndex;
         private int _observationTick;
@@ -42,6 +43,7 @@ namespace CalradiaStrategicMind.Behaviors
             _dryRunDefenseReportAggregator = new DryRunDefenseReportAggregator();
             _defenseController = new DefenseController();
             _defenseControllerSafetyGuard = new DefenseControllerSafetyGuard();
+            _defenseCommandInterface = new DefenseCommandInterface();
         }
 
         public override void RegisterEvents()
@@ -265,6 +267,8 @@ namespace CalradiaStrategicMind.Behaviors
                         LogDefenseControllerDecision(defenseControllerDecision);
                         var defenseControllerSafetyReport = _defenseControllerSafetyGuard.Evaluate(summary, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerDecision);
                         LogDefenseControllerSafety(defenseControllerSafetyReport);
+                        var commandReport = _defenseCommandInterface.RequestReinforcement(summary, actionPlan, dryRunDecision, defenseControllerSafetyReport);
+                        LogDefenseCommand(commandReport);
                     }
                 }
                 observedCount++;
@@ -412,6 +416,12 @@ namespace CalradiaStrategicMind.Behaviors
         {
             CsmLogger.Info(
                 $"Observed defense controller safety: tick={_observationTick}, settlement='{report.SettlementName}', owner='{report.OwnerKingdomName}', allowed={report.Allowed}, realControllerEnabled={report.RealControllerEnabled}, dryRunWouldAct={report.DryRunWouldAct}, hasStableWouldActSignal={report.HasStableWouldActSignal}, action='{report.Action}', dryRunAction='{report.DryRunAction}', primaryCandidate='{report.PrimaryCandidateName}', primaryCandidateCategory={report.PrimaryCandidateCategory}, reason='{report.Reason}'");
+        }
+
+        private void LogDefenseCommand(DefenseCommandReport report)
+        {
+            CsmLogger.Info(
+                $"Observed defense command: tick={_observationTick}, settlement='{report.SettlementName}', owner='{report.OwnerKingdomName}', commandType='{report.CommandType}', candidate='{report.CandidateName}', candidateCategory={report.CandidateCategory}, isAllowed={report.IsAllowed}, wasExecuted={report.WasExecuted}, reason='{report.Reason}'");
         }
 
         private DryRunDefenseDecisionStabilityReport GetDryRunStabilityReport(DryRunDefenseDecision decision)

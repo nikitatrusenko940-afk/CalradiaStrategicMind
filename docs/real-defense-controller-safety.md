@@ -63,6 +63,16 @@ These actions are forbidden unless a separate explicit task approves and scopes 
 - Real execution must initially support only one narrow action type.
 - Recommended first real action should be `request reinforcement candidate` or equivalent, not full AI replacement.
 
+## DefenseCommandInterface
+
+`DefenseCommandInterface` is the diagnostic boundary for future defense commands.
+
+`RequestReinforcement` is currently only a diagnostic command. It reports whether the command was blocked by the safety guard or allowed as a future command candidate.
+
+`WasExecuted` must remain `false` until a separate explicit task implements a scoped real action.
+
+The command interface must not move parties, issue orders, change party AI, change armies, change settlements, change kingdoms, or use Harmony or reflection.
+
 ## Minimum Logs Before Real Execution
 
 These logs must exist before real execution is considered:
@@ -73,6 +83,7 @@ These logs must exist before real execution is considered:
 - `Observed dry-run defense daily report`.
 - `Observed defense controller scaffold`.
 - `Observed defense controller safety`.
+- `Observed defense command`.
 
 ## Recommended Next Stages
 
