@@ -22,6 +22,7 @@ namespace CalradiaStrategicMind.Behaviors
         private readonly DefenseDiagnosticsSummaryBuilder _defenseDiagnosticsSummaryBuilder;
         private readonly DryRunDefenseController _dryRunDefenseController;
         private readonly DryRunDefenseDecisionHistory _dryRunDefenseDecisionHistory;
+        private readonly DryRunDefenseReportAggregator _dryRunDefenseReportAggregator;
         private int _nextPartyIndex;
         private int _nextSettlementIndex;
         private int _observationTick;
@@ -36,6 +37,7 @@ namespace CalradiaStrategicMind.Behaviors
             _defenseDiagnosticsSummaryBuilder = new DefenseDiagnosticsSummaryBuilder();
             _dryRunDefenseController = new DryRunDefenseController();
             _dryRunDefenseDecisionHistory = new DryRunDefenseDecisionHistory();
+            _dryRunDefenseReportAggregator = new DryRunDefenseReportAggregator();
         }
 
         public override void RegisterEvents()
@@ -188,6 +190,7 @@ namespace CalradiaStrategicMind.Behaviors
 
             var observedCount = 0;
             var checkedCount = 0;
+            _dryRunDefenseReportAggregator.BeginTick(_observationTick);
             if (_nextSettlementIndex < 0 || _nextSettlementIndex >= settlements.Count)
             {
                 _nextSettlementIndex = 0;
@@ -252,17 +255,20 @@ namespace CalradiaStrategicMind.Behaviors
                     {
                         var dryRunDecision = _dryRunDefenseController.EvaluateDryRun(summary, actionPlan, stabilityReport);
                         LogDryRunDefenseDecision(dryRunDecision);
-                        if (DryRunDefenseSettings.EnableDryRunDecisionHistory)
-                        {
-                            _dryRunDefenseDecisionHistory.Record(dryRunDecision, _observationTick);
-                            var dryRunStabilityReport = _dryRunDefenseDecisionHistory.EvaluateStability(
-                                dryRunDecision,
-                                _observationTick);
-                            LogDryRunDefenseStability(dryRunStabilityReport);
-                        }
+                        var dryRunStabilityReport = GetDryRunStabilityReport(dryRunDecision);
+                        _dryRunDefenseReportAggregator.Record(dryRunDecision, dryRunStabilityReport);
                     }
                 }
                 observedCount++;
+            }
+
+            if (DryRunDefenseSettings.EnableDryRunDailyReport)
+            {
+                var dailyReport = _dryRunDefenseReportAggregator.BuildReport();
+                if (dailyReport.TotalEvaluatedSettlements > 0)
+                {
+                    LogDryRunDefenseDailyReport(dailyReport);
+                }
             }
         }
 
@@ -386,6 +392,37 @@ namespace CalradiaStrategicMind.Behaviors
         {
             CsmLogger.Info(
                 $"Observed dry-run defense stability: tick={_observationTick}, settlement='{report.SettlementName}', currentAction='{report.CurrentAction}', stableAction='{report.StableAction}', consecutiveSameActionCount={report.ConsecutiveSameActionCount}, recentWouldActCount={report.RecentWouldActCount}, recentMonitorCount={report.RecentMonitorCount}, recentReinforcementRequestCount={report.RecentReinforcementRequestCount}, recentUrgentDefenseRequestCount={report.RecentUrgentDefenseRequestCount}, isStable={report.IsStable}, hasStableWouldActSignal={report.HasStableWouldActSignal}, hasStableMonitorSignal={report.HasStableMonitorSignal}, reason='{report.Reason}'");
+        }
+
+        private DryRunDefenseDecisionStabilityReport GetDryRunStabilityReport(DryRunDefenseDecision decision)
+        {
+            if (!DryRunDefenseSettings.EnableDryRunDecisionHistory)
+            {
+                return new DryRunDefenseDecisionStabilityReport(
+                    decision.SettlementName,
+                    decision.Action,
+                    "None",
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    false,
+                    false,
+                    false,
+                    "Dry-run decision history disabled");
+            }
+
+            _dryRunDefenseDecisionHistory.Record(decision, _observationTick);
+            var stabilityReport = _dryRunDefenseDecisionHistory.EvaluateStability(decision, _observationTick);
+            LogDryRunDefenseStability(stabilityReport);
+            return stabilityReport;
+        }
+
+        private void LogDryRunDefenseDailyReport(DryRunDefenseDailyReport report)
+        {
+            CsmLogger.Info(
+                $"Observed dry-run defense daily report: tick={report.ObservationTick}, totalEvaluatedSettlements={report.TotalEvaluatedSettlements}, ignoreCount={report.IgnoreCount}, monitorCount={report.MonitorCount}, waitCount={report.WaitCount}, requestReinforcementCount={report.RequestReinforcementCount}, requestUrgentDefenseCount={report.RequestUrgentDefenseCount}, wouldActCount={report.WouldActCount}, wouldMonitorCount={report.WouldMonitorCount}, stableWouldActSignalCount={report.StableWouldActSignalCount}, stableMonitorSignalCount={report.StableMonitorSignalCount}, topActionSettlement='{report.TopActionSettlementName}', topAction='{report.TopAction}', topActionConfidence={report.TopActionConfidence:0.00}, reason='{report.Reason}'");
         }
 
         private static string GetPartyName(MobileParty party)
