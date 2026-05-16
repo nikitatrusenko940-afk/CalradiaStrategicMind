@@ -27,6 +27,7 @@ namespace CalradiaStrategicMind.Behaviors
         private readonly DefenseControllerSafetyGuard _defenseControllerSafetyGuard;
         private readonly DefenseCommandInterface _defenseCommandInterface;
         private readonly DefenseScoreSimulator _defenseScoreSimulator;
+        private readonly DefenseScoreSimulationSummaryBuilder _defenseScoreSimulationSummaryBuilder;
         private int _nextPartyIndex;
         private int _nextSettlementIndex;
         private int _observationTick;
@@ -46,6 +47,7 @@ namespace CalradiaStrategicMind.Behaviors
             _defenseControllerSafetyGuard = new DefenseControllerSafetyGuard();
             _defenseCommandInterface = new DefenseCommandInterface();
             _defenseScoreSimulator = new DefenseScoreSimulator();
+            _defenseScoreSimulationSummaryBuilder = new DefenseScoreSimulationSummaryBuilder();
         }
 
         public override void RegisterEvents()
@@ -199,6 +201,7 @@ namespace CalradiaStrategicMind.Behaviors
             var observedCount = 0;
             var checkedCount = 0;
             _dryRunDefenseReportAggregator.BeginTick(_observationTick);
+            _defenseScoreSimulationSummaryBuilder.BeginTick(_observationTick);
             if (_nextSettlementIndex < 0 || _nextSettlementIndex >= settlements.Count)
             {
                 _nextSettlementIndex = 0;
@@ -275,6 +278,7 @@ namespace CalradiaStrategicMind.Behaviors
                         {
                             var scoreSimulationReport = _defenseScoreSimulator.Simulate(summary, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerSafetyReport);
                             LogDefenseScoreSimulation(scoreSimulationReport);
+                            _defenseScoreSimulationSummaryBuilder.Record(scoreSimulationReport);
                         }
                     }
                 }
@@ -287,6 +291,15 @@ namespace CalradiaStrategicMind.Behaviors
                 if (dailyReport.TotalEvaluatedSettlements > 0)
                 {
                     LogDryRunDefenseDailyReport(dailyReport);
+                }
+            }
+
+            if (DryRunDefenseSettings.EnableDefenseScoreSimulationSummary)
+            {
+                var scoreSimulationSummary = _defenseScoreSimulationSummaryBuilder.BuildSummary();
+                if (scoreSimulationSummary.TotalScoreSimulations > 0)
+                {
+                    LogDefenseScoreSimulationSummary(scoreSimulationSummary);
                 }
             }
         }
@@ -435,6 +448,12 @@ namespace CalradiaStrategicMind.Behaviors
         {
             CsmLogger.Info(
                 $"Observed defense score simulation: tick={_observationTick}, settlement='{report.SettlementName}', owner='{report.OwnerKingdomName}', candidate='{report.CandidateName}', candidateCategory={report.CandidateCategory}, threatType={report.ThreatType}, recommendedAction='{report.RecommendedAction}', coverageStatus={report.CoverageStatus}, defensePriority={report.DefensePriority:0.00}, planConfidence={report.PlanConfidence:0.00}, hypotheticalScore={report.HypotheticalScore:0.00}, wouldAddScore={report.WouldAddScore}, isBlockedBySafety={report.IsBlockedBySafety}, reason='{report.Reason}'");
+        }
+
+        private void LogDefenseScoreSimulationSummary(DefenseScoreSimulationDailySummary summary)
+        {
+            CsmLogger.Info(
+                $"Observed defense score simulation summary: tick={summary.ObservationTick}, totalScoreSimulations={summary.TotalScoreSimulations}, blockedBySafetyCount={summary.BlockedBySafetyCount}, wouldAddScoreCount={summary.WouldAddScoreCount}, maxHypotheticalScore={summary.MaxHypotheticalScore:0.00}, averageHypotheticalScore={summary.AverageHypotheticalScore:0.00}, topScoreSettlement='{summary.TopScoreSettlementName}', topScoreCandidate='{summary.TopScoreCandidateName}', topScoreCandidateCategory={summary.TopScoreCandidateCategory}, topScoreRecommendedAction='{summary.TopScoreRecommendedAction}', topScoreReason='{summary.TopScoreReason}', reason='{summary.Reason}'");
         }
 
         private DryRunDefenseDecisionStabilityReport GetDryRunStabilityReport(DryRunDefenseDecision decision)

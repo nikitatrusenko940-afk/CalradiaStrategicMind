@@ -14,7 +14,7 @@ Current state:
 
 ## Pipeline
 
-`PartyStrength` -> `PartyClassifier` -> `SettlementThreat` -> `SettlementValue` -> `DefensePriority` -> `DefenseCandidates` -> `DefenseCoverage` -> `DefenseNeed` -> `DefenseEvaluationSnapshot` -> `DefenseActionPlan` -> `DefenseActionPlanHistory` -> `DefenseDiagnosticsSummary` -> `DryRunDefenseController` -> `DryRunDecisionHistory` -> `DryRunDefenseReportAggregator` -> `DefenseControllerScaffold` -> `DefenseControllerSafetyGuard` -> `DefenseCommandInterface` -> `DefenseScoreSimulation`
+`PartyStrength` -> `PartyClassifier` -> `SettlementThreat` -> `SettlementValue` -> `DefensePriority` -> `DefenseCandidates` -> `DefenseCoverage` -> `DefenseNeed` -> `DefenseEvaluationSnapshot` -> `DefenseActionPlan` -> `DefenseActionPlanHistory` -> `DefenseDiagnosticsSummary` -> `DryRunDefenseController` -> `DryRunDecisionHistory` -> `DryRunDefenseReportAggregator` -> `DefenseControllerScaffold` -> `DefenseControllerSafetyGuard` -> `DefenseCommandInterface` -> `DefenseScoreSimulation` -> `DefenseScoreSimulationDailySummary`
 
 ## Layers
 
@@ -214,6 +214,18 @@ It does not create `AIBehaviorData`, does not access `PartyThinkParams`, does no
 
 Provides the `Observed defense score simulation` short-log line.
 
+### DefenseScoreSimulationDailySummary
+
+Classes: `DefenseScoreSimulationSummaryBuilder`, `DefenseScoreSimulationDailySummary`
+
+Collects runtime-only score simulation summaries for the current observation tick.
+
+It counts total score simulations, safety-blocked simulations, unexpected would-add-score signals, max and average hypothetical scores, and the top score settlement/candidate/action.
+
+It does not create `AIBehaviorData`, does not access `PartyThinkParams`, does not call `AddBehaviorScore` or `SetBehaviorScore`, does not call `SetPartyAiAction`, and does not move parties.
+
+Provides the `Observed defense score simulation summary` short-log line.
+
 ### DefenseEvaluationSnapshot
 
 Classes: `DefenseEvaluationSnapshot`, `DefenseEvaluationSnapshotBuilder`
@@ -240,6 +252,7 @@ Provides one read-only evaluation bundle to logging, action planning, history, s
 - The defense controller safety guard only reports whether future execution would pass safety checks; `Allowed=true` does not execute anything.
 - The defense command interface only reports blocked or allowed diagnostic commands; `WasExecuted` remains `false`.
 - The defense score simulation calculates only hypothetical scores and never writes to `PartyThinkParams`.
+- The defense score simulation daily summary aggregates simulation reports only and never writes to `PartyThinkParams`.
 
 ## Current Logs
 
@@ -260,6 +273,7 @@ Provides one read-only evaluation bundle to logging, action planning, history, s
 - `Observed defense controller safety`
 - `Observed defense command`
 - `Observed defense score simulation`
+- `Observed defense score simulation summary`
 
 ## Future AI Integration Boundary
 
@@ -293,6 +307,7 @@ Current settings:
 - `EnableDryRunDecisionHistory`: enables or disables runtime dry-run decision history and `Observed dry-run defense stability` logs.
 - `EnableDryRunDailyReport`: enables or disables the runtime daily dry-run report log.
 - `EnableDefenseScoreSimulation`: enables or disables diagnostic-only hypothetical defense score simulation logs.
+- `EnableDefenseScoreSimulationSummary`: enables or disables diagnostic-only score simulation summary logs.
 
 These settings are intended as a simple bridge toward future configuration. MCM must only be added in a separate explicit task.
 
