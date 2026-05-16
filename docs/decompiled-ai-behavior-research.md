@@ -248,6 +248,28 @@ Unsafe current option:
 
 - Adding or boosting `AiBehavior.DefendSettlement` in live `PartyThinkParams`.
 
+## Experimental Defense Score Influence
+
+`ExperimentalDefenseScoreInfluence` intentionally crosses the previous diagnostic-only boundary as an experimental AI feature.
+
+This is real AI influence because it can add an `AiBehavior.DefendSettlement` score into live `PartyThinkParams`. `PartyThinkParams` is consumed by vanilla AI behavior selection, so an inserted score can affect which behavior vanilla chooses.
+
+The feature is disabled by default through `ExperimentalDefenseScoreInfluenceSettings.EnableExperimentalDefenseScoreInfluence = false`.
+
+The implementation does not directly call `MobileParty.SetMove...`, `SetPartyAiAction`, target/objective setters, army actions, settlement mutations, kingdom mutations, Harmony, or MCM.
+
+However, this is not the same as diagnostic-only score simulation. If the experimental score wins vanilla selection, vanilla may indirectly call `SetPartyAiAction.GetActionForDefendingSettlement` and then perform real defend-settlement movement through its own AI path.
+
+Required guardrails:
+
+- The feature must remain disabled by default.
+- A settlement name filter is required by default.
+- Score boost is capped.
+- Weak hypothetical scores are blocked.
+- Stale diagnostic reports are blocked.
+- Army members that are not army leaders are blocked.
+- The safety audit must be run in strict mode and experimental mode so this boundary remains visible.
+
 ## Proposed Next Step
 
 - Do not implement `RequestReinforcementCandidate` yet.

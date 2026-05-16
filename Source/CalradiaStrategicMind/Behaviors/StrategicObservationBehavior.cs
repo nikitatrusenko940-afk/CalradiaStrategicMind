@@ -28,6 +28,7 @@ namespace CalradiaStrategicMind.Behaviors
         private readonly DefenseCommandInterface _defenseCommandInterface;
         private readonly DefenseScoreSimulator _defenseScoreSimulator;
         private readonly DefenseScoreSimulationSummaryBuilder _defenseScoreSimulationSummaryBuilder;
+        private readonly ExperimentalDefenseScoreInfluenceRegistry _experimentalDefenseScoreInfluenceRegistry;
         private int _nextPartyIndex;
         private int _nextSettlementIndex;
         private int _observationTick;
@@ -48,6 +49,7 @@ namespace CalradiaStrategicMind.Behaviors
             _defenseCommandInterface = new DefenseCommandInterface();
             _defenseScoreSimulator = new DefenseScoreSimulator();
             _defenseScoreSimulationSummaryBuilder = new DefenseScoreSimulationSummaryBuilder();
+            _experimentalDefenseScoreInfluenceRegistry = new ExperimentalDefenseScoreInfluenceRegistry();
         }
 
         public override void RegisterEvents()
@@ -202,6 +204,7 @@ namespace CalradiaStrategicMind.Behaviors
             var checkedCount = 0;
             _dryRunDefenseReportAggregator.BeginTick(_observationTick);
             _defenseScoreSimulationSummaryBuilder.BeginTick(_observationTick);
+            _experimentalDefenseScoreInfluenceRegistry.BeginTick(_observationTick);
             if (_nextSettlementIndex < 0 || _nextSettlementIndex >= settlements.Count)
             {
                 _nextSettlementIndex = 0;
@@ -279,6 +282,7 @@ namespace CalradiaStrategicMind.Behaviors
                             var scoreSimulationReport = _defenseScoreSimulator.Simulate(summary, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerSafetyReport);
                             LogDefenseScoreSimulation(scoreSimulationReport);
                             _defenseScoreSimulationSummaryBuilder.Record(scoreSimulationReport);
+                            _experimentalDefenseScoreInfluenceRegistry.Record(scoreSimulationReport, _observationTick);
                         }
                     }
                 }
