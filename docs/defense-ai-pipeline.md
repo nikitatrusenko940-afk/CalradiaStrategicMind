@@ -14,7 +14,7 @@ Current state:
 
 ## Pipeline
 
-`PartyStrength` -> `PartyClassifier` -> `SettlementThreat` -> `SettlementValue` -> `DefensePriority` -> `DefenseCandidates` -> `DefenseCoverage` -> `DefenseNeed` -> `DefenseEvaluationSnapshot` -> `DefenseActionPlan` -> `DefenseActionPlanHistory` -> `DefenseDiagnosticsSummary` -> `DryRunDefenseController` -> `DryRunDecisionHistory` -> `DryRunDefenseReportAggregator`
+`PartyStrength` -> `PartyClassifier` -> `SettlementThreat` -> `SettlementValue` -> `DefensePriority` -> `DefenseCandidates` -> `DefenseCoverage` -> `DefenseNeed` -> `DefenseEvaluationSnapshot` -> `DefenseActionPlan` -> `DefenseActionPlanHistory` -> `DefenseDiagnosticsSummary` -> `DryRunDefenseController` -> `DryRunDecisionHistory` -> `DryRunDefenseReportAggregator` -> `DefenseControllerScaffold`
 
 ## Layers
 
@@ -158,6 +158,22 @@ Does not persist data to savegames, does not issue orders, does not request rein
 
 Provides one compact daily dry-run report log line for short-log mode.
 
+### DefenseControllerScaffold
+
+Classes: `DefenseController`, `DefenseControllerDecision`
+
+Evaluates the future real defense controller boundary after dry-run decision stability and report aggregation.
+
+The real controller is disabled by default through `DryRunDefenseSettings.EnableRealDefenseController = false`.
+
+When disabled, it only logs `Action="Disabled"`, `WouldExecute=false`, and the reason `Real defense controller disabled`.
+
+When enabled in code, it is still scaffold-only and returns `Action="SafetyBlocked"` with `WouldExecute=false`.
+
+It does not issue orders, does not move parties, does not change armies, settlements, kingdoms, diplomacy, or AI behavior.
+
+Provides the `Observed defense controller scaffold` short-log line.
+
 ### DefenseEvaluationSnapshot
 
 Classes: `DefenseEvaluationSnapshot`, `DefenseEvaluationSnapshotBuilder`
@@ -180,6 +196,7 @@ Provides one read-only evaluation bundle to logging, action planning, history, s
 - Runtime history is not saved yet and resets after game restart.
 - Dry-run decision history is runtime-only and resets after game restart.
 - Dry-run daily reports are runtime-only summaries for the current observation tick.
+- The real defense controller scaffold is disabled by default and remains non-executing even if enabled in code.
 
 ## Current Logs
 
@@ -196,6 +213,7 @@ Provides one read-only evaluation bundle to logging, action planning, history, s
 - `Observed dry-run defense decision`
 - `Observed dry-run defense stability`
 - `Observed dry-run defense daily report`
+- `Observed defense controller scaffold`
 
 ## Future AI Integration Boundary
 
@@ -224,6 +242,7 @@ Current settings:
 - `EnableDefenseCandidateLogs`: enables or disables `Observed defense candidate` logs. Candidate calculations can still be used internally by coverage and action planning.
 - `EnableDefenseSummaryLogs`: enables or disables `Observed defense summary` logs.
 - `EnableDryRunDefenseController`: enables or disables dry-run decision evaluation and `Observed dry-run defense decision` logs.
+- `EnableRealDefenseController`: enables or disables the real defense controller scaffold. It defaults to `false`; even when set to `true`, the scaffold does not execute game actions.
 - `EnableDefenseActionHistory`: enables or disables runtime action-plan history and stability logging.
 - `EnableDryRunDecisionHistory`: enables or disables runtime dry-run decision history and `Observed dry-run defense stability` logs.
 - `EnableDryRunDailyReport`: enables or disables the runtime daily dry-run report log.
