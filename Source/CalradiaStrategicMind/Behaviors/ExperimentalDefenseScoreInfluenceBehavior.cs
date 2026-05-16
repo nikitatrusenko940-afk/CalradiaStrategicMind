@@ -12,6 +12,8 @@ namespace CalradiaStrategicMind.Behaviors
     public class ExperimentalDefenseScoreInfluenceBehavior : CampaignBehaviorBase
     {
         private readonly ExperimentalDefenseScoreInfluenceRegistry _registry;
+        private int _lastDebugLogTick;
+        private int _debugLogsThisTick;
 
         public ExperimentalDefenseScoreInfluenceBehavior()
         {
@@ -32,7 +34,7 @@ namespace CalradiaStrategicMind.Behaviors
             SafeExecutor.Run("Experimental defense score influence hourly tick", () =>
             {
                 var report = EvaluateAndApply(party, partyThinkParams);
-                if (report.WasAttempted || report.WasApplied)
+                if (ShouldLogReport(report))
                 {
                     LogExperimentalDefenseScoreInfluence(report);
                 }
@@ -203,6 +205,55 @@ namespace CalradiaStrategicMind.Behaviors
             }
 
             return party.Name.ToString();
+        }
+
+        private bool ShouldLogReport(ExperimentalDefenseScoreInfluenceReport report)
+        {
+            if (report.WasAttempted || report.WasApplied)
+            {
+                return true;
+            }
+
+            if (!ExperimentalDefenseScoreInfluenceSettings.EnableExperimentalDefenseScoreInfluenceDebugLogs)
+            {
+                return false;
+            }
+
+            if (!IsDebugReason(report.Reason))
+            {
+                return false;
+            }
+
+            if (_lastDebugLogTick != report.ObservationTick)
+            {
+                _lastDebugLogTick = report.ObservationTick;
+                _debugLogsThisTick = 0;
+            }
+
+            var maxDebugLogs = ExperimentalDefenseScoreInfluenceSettings.MaxExperimentalDebugLogsPerTick;
+            if (maxDebugLogs < 0)
+            {
+                maxDebugLogs = 0;
+            }
+
+            if (_debugLogsThisTick >= maxDebugLogs)
+            {
+                return false;
+            }
+
+            _debugLogsThisTick++;
+            return true;
+        }
+
+        private static bool IsDebugReason(string reason)
+        {
+            return reason == "Experimental defense score influence disabled"
+                || reason == "Settlement name filter required"
+                || reason == "Hypothetical score below minimum"
+                || reason == "Non-executable score simulation action"
+                || reason == "Settlement filter mismatch"
+                || (reason == "No recent score simulation report" && ExperimentalDefenseScoreInfluenceSettings.LogNoRecentScoreSimulationReport)
+                || (reason == "Party is army member and not leader" && ExperimentalDefenseScoreInfluenceSettings.LogArmyMemberSkip);
         }
 
         private static ExperimentalDefenseScoreInfluenceReport CreateReport(
