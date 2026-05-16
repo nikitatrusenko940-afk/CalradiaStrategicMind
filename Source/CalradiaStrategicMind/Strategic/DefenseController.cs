@@ -23,7 +23,7 @@ namespace CalradiaStrategicMind.Strategic
             DryRunDefenseDecision dryRunDecision,
             DryRunDefenseDecisionStabilityReport dryRunStabilityReport)
         {
-            if (!DryRunDefenseSettings.EnableRealDefenseController)
+            if (!DefenseControllerSettings.EnableRealDefenseController)
             {
                 return CreateDecision(summary, actionPlan, dryRunDecision, false, false, "Disabled", "Real defense controller disabled");
             }

@@ -164,7 +164,7 @@ Classes: `DefenseController`, `DefenseControllerDecision`
 
 Evaluates the future real defense controller boundary after dry-run decision stability and report aggregation.
 
-The real controller is disabled by default through `DryRunDefenseSettings.EnableRealDefenseController = false`.
+The real controller is disabled by default through `DefenseControllerSettings.EnableRealDefenseController = false`.
 
 When disabled, it only logs `Action="Disabled"`, `WouldExecute=false`, and the reason `Real defense controller disabled`.
 
@@ -292,24 +292,37 @@ Until a separate real integration task exists, all defense action outputs are di
 
 ## Code Settings
 
-Class: `DryRunDefenseSettings`
+The project currently uses grouped static code settings for defense diagnostics, dry-run behavior, controller scaffolding, and score simulation. These settings are compile-time/static values only. There is no config file and MCM is not connected yet.
 
-The project currently has temporary static code settings for defense diagnostics and dry-run logging. These settings are compile-time/static values only. There is no config file and MCM is not connected yet.
+This split is preparation for a possible future MCM task, but MCM is not currently integrated.
 
-Current settings:
-- `EnableDefenseDiagnostics`: enables or disables the settlement defense diagnostic pipeline logs.
-- `EnableVerboseDefenseLogs`: enables or disables long detailed defense logs such as threat, value, priority, coverage, need, action plan, and stability.
-- `EnableDefenseCandidateLogs`: enables or disables `Observed defense candidate` logs. Candidate calculations can still be used internally by coverage and action planning.
-- `EnableDefenseSummaryLogs`: enables or disables `Observed defense summary` logs.
-- `EnableDryRunDefenseController`: enables or disables dry-run decision evaluation and `Observed dry-run defense decision` logs.
-- `EnableRealDefenseController`: enables or disables the real defense controller scaffold. It defaults to `false`; even when set to `true`, the scaffold does not execute game actions.
-- `EnableDefenseActionHistory`: enables or disables runtime action-plan history and stability logging.
-- `EnableDryRunDecisionHistory`: enables or disables runtime dry-run decision history and `Observed dry-run defense stability` logs.
-- `EnableDryRunDailyReport`: enables or disables the runtime daily dry-run report log.
-- `EnableDefenseScoreSimulation`: enables or disables diagnostic-only hypothetical defense score simulation logs.
-- `EnableDefenseScoreSimulationSummary`: enables or disables diagnostic-only score simulation summary logs.
+Classes:
+- `DefenseDiagnosticsSettings`: diagnostic and logging switches.
+- `DefenseDryRunSettings`: dry-run controller, history, and daily report switches.
+- `DefenseControllerSettings`: real controller scaffold switch.
+- `DefenseScoreSimulationSettings`: diagnostic score simulation switches.
+- `DryRunDefenseSettings`: temporary compatibility wrapper over the grouped settings classes.
 
-These settings are intended as a simple bridge toward future configuration. MCM must only be added in a separate explicit task.
+Diagnostics settings:
+- `DefenseDiagnosticsSettings.EnableDefenseDiagnostics`: enables or disables the settlement defense diagnostic pipeline logs.
+- `DefenseDiagnosticsSettings.EnableVerboseDefenseLogs`: enables or disables long detailed defense logs such as threat, value, priority, coverage, need, action plan, and stability.
+- `DefenseDiagnosticsSettings.EnableDefenseCandidateLogs`: enables or disables `Observed defense candidate` logs. Candidate calculations can still be used internally by coverage and action planning.
+- `DefenseDiagnosticsSettings.EnableDefenseSummaryLogs`: enables or disables `Observed defense summary` logs.
+
+Dry-run settings:
+- `DefenseDryRunSettings.EnableDryRunDefenseController`: enables or disables dry-run decision evaluation and `Observed dry-run defense decision` logs.
+- `DefenseDryRunSettings.EnableDefenseActionHistory`: enables or disables runtime action-plan history and stability logging.
+- `DefenseDryRunSettings.EnableDryRunDecisionHistory`: enables or disables runtime dry-run decision history and `Observed dry-run defense stability` logs.
+- `DefenseDryRunSettings.EnableDryRunDailyReport`: enables or disables the runtime daily dry-run report log.
+
+Controller settings:
+- `DefenseControllerSettings.EnableRealDefenseController`: enables or disables the real defense controller scaffold. It defaults to `false`; even when set to `true`, the scaffold does not execute game actions.
+
+Score simulation settings:
+- `DefenseScoreSimulationSettings.EnableDefenseScoreSimulation`: enables or disables diagnostic-only hypothetical defense score simulation logs.
+- `DefenseScoreSimulationSettings.EnableDefenseScoreSimulationSummary`: enables or disables diagnostic-only score simulation summary logs.
+
+These settings remain a simple bridge toward future configuration. MCM must only be added in a separate explicit task.
 
 ## Next Possible Stages
 
