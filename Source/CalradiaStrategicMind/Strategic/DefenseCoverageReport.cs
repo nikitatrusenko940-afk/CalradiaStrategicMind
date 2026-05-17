@@ -16,6 +16,23 @@ namespace CalradiaStrategicMind.Strategic
             0f,
             0f,
             0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0,
+            0f,
+            0,
+            0f,
+            0,
+            "No readable defense intent found",
+            0f,
+            0f,
+            0,
+            0,
+            0,
             false,
             false,
             false,
@@ -37,6 +54,23 @@ namespace CalradiaStrategicMind.Strategic
             float armySiegeThreat,
             float regionalEnemyPressure,
             float defenseCoverageRatio,
+            float requiredThreatStrength,
+            float availableDefenseStrength,
+            float garrisonDefenseStrength,
+            float nearbyFriendlyDefenseStrength,
+            float candidateDefenseStrength,
+            float explicitDefenderStrength,
+            int explicitDefenderCount,
+            float nearbyUncommittedStrength,
+            int nearbyUncommittedCount,
+            float potentialCandidateStrength,
+            int potentialCandidateCount,
+            string defenseIntentReason,
+            float enemySiegeThreatStrength,
+            float nearbyEnemyThreatStrength,
+            int usedCandidateCount,
+            int nearbyFriendlyPartyCount,
+            int nearbyEnemyPartyCount,
             bool hasDirectSiegeThreat,
             bool hasArmyPresence,
             bool hasRegionalPressure,
@@ -57,6 +91,23 @@ namespace CalradiaStrategicMind.Strategic
             ArmySiegeThreat = armySiegeThreat;
             RegionalEnemyPressure = regionalEnemyPressure;
             DefenseCoverageRatio = defenseCoverageRatio;
+            RequiredThreatStrength = requiredThreatStrength;
+            AvailableDefenseStrength = availableDefenseStrength;
+            GarrisonDefenseStrength = garrisonDefenseStrength;
+            NearbyFriendlyDefenseStrength = nearbyFriendlyDefenseStrength;
+            CandidateDefenseStrength = candidateDefenseStrength;
+            ExplicitDefenderStrength = explicitDefenderStrength;
+            ExplicitDefenderCount = explicitDefenderCount;
+            NearbyUncommittedStrength = nearbyUncommittedStrength;
+            NearbyUncommittedCount = nearbyUncommittedCount;
+            PotentialCandidateStrength = potentialCandidateStrength;
+            PotentialCandidateCount = potentialCandidateCount;
+            DefenseIntentReason = defenseIntentReason;
+            EnemySiegeThreatStrength = enemySiegeThreatStrength;
+            NearbyEnemyThreatStrength = nearbyEnemyThreatStrength;
+            UsedCandidateCount = usedCandidateCount;
+            NearbyFriendlyPartyCount = nearbyFriendlyPartyCount;
+            NearbyEnemyPartyCount = nearbyEnemyPartyCount;
             HasDirectSiegeThreat = hasDirectSiegeThreat;
             HasArmyPresence = hasArmyPresence;
             HasRegionalPressure = hasRegionalPressure;
@@ -90,6 +141,40 @@ namespace CalradiaStrategicMind.Strategic
         public float RegionalEnemyPressure { get; private set; }
 
         public float DefenseCoverageRatio { get; private set; }
+
+        public float RequiredThreatStrength { get; private set; }
+
+        public float AvailableDefenseStrength { get; private set; }
+
+        public float GarrisonDefenseStrength { get; private set; }
+
+        public float NearbyFriendlyDefenseStrength { get; private set; }
+
+        public float CandidateDefenseStrength { get; private set; }
+
+        public float ExplicitDefenderStrength { get; private set; }
+
+        public int ExplicitDefenderCount { get; private set; }
+
+        public float NearbyUncommittedStrength { get; private set; }
+
+        public int NearbyUncommittedCount { get; private set; }
+
+        public float PotentialCandidateStrength { get; private set; }
+
+        public int PotentialCandidateCount { get; private set; }
+
+        public string DefenseIntentReason { get; private set; }
+
+        public float EnemySiegeThreatStrength { get; private set; }
+
+        public float NearbyEnemyThreatStrength { get; private set; }
+
+        public int UsedCandidateCount { get; private set; }
+
+        public int NearbyFriendlyPartyCount { get; private set; }
+
+        public int NearbyEnemyPartyCount { get; private set; }
 
         public bool HasDirectSiegeThreat { get; private set; }
 

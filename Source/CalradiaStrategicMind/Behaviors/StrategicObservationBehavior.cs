@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using CalradiaStrategicMind.Logging;
 using CalradiaStrategicMind.Settings;
 using CalradiaStrategicMind.Strategic;
@@ -210,6 +211,42 @@ namespace CalradiaStrategicMind.Behaviors
                 _nextSettlementIndex = 0;
             }
 
+            var observedSettlementNames = new HashSet<string>();
+            for (var index = 0; index < settlements.Count; index++)
+            {
+                var settlement = settlements[index];
+                if (!ShouldObserveSettlement(settlement) || !HasActiveSiege(settlement))
+                {
+                    continue;
+                }
+
+                if (ObserveDefenseSettlement(settlement, null))
+                {
+                    observedSettlementNames.Add(GetSettlementName(settlement));
+                }
+            }
+
+            for (var index = 0; index < settlements.Count && observedCount < MaxSettlementsPerDailyObservation; index++)
+            {
+                var settlement = settlements[index];
+                if (!ShouldObserveSettlement(settlement) || observedSettlementNames.Contains(GetSettlementName(settlement)))
+                {
+                    continue;
+                }
+
+                var snapshot = _defenseEvaluationSnapshotBuilder.Build(settlement, MaxDefenseCandidatesPerSettlement);
+                if (!ShouldRunFullDefensePipeline(snapshot))
+                {
+                    continue;
+                }
+
+                if (ObserveDefenseSettlement(settlement, snapshot))
+                {
+                    observedSettlementNames.Add(GetSettlementName(settlement));
+                    observedCount++;
+                }
+            }
+
             while (checkedCount < settlements.Count && observedCount < MaxSettlementsPerDailyObservation)
             {
                 var settlement = settlements[_nextSettlementIndex];
@@ -220,73 +257,16 @@ namespace CalradiaStrategicMind.Behaviors
                 }
 
                 checkedCount++;
-                if (!ShouldObserveSettlement(settlement))
+                if (!ShouldObserveSettlement(settlement) || observedSettlementNames.Contains(GetSettlementName(settlement)))
                 {
                     continue;
                 }
 
-                if (!DefenseDiagnosticsSettings.EnableDefenseDiagnostics)
+                if (ObserveDefenseSettlement(settlement, null))
                 {
+                    observedSettlementNames.Add(GetSettlementName(settlement));
                     observedCount++;
-                    continue;
                 }
-
-                var snapshot = _defenseEvaluationSnapshotBuilder.Build(settlement, MaxDefenseCandidatesPerSettlement);
-                if (DefenseDiagnosticsSettings.EnableVerboseDefenseLogs)
-                {
-                    LogSettlementThreat(snapshot.ThreatReport);
-                    LogSettlementValue(snapshot.ValueReport);
-                    LogDefensePriority(snapshot.PriorityReport);
-                }
-
-                if (ShouldLogDefenseCandidates(snapshot.PriorityReport))
-                {
-                    if (DefenseDiagnosticsSettings.EnableDefenseCandidateLogs)
-                    {
-                        LogDefenseCandidates(snapshot.CandidateReports);
-                    }
-
-                    if (DefenseDiagnosticsSettings.EnableVerboseDefenseLogs)
-                    {
-                        LogDefenseCoverage(snapshot.CoverageReport);
-                        LogDefenseNeed(snapshot.NeedReport);
-                    }
-
-                    var actionPlan = _defenseActionPlanner.CreatePlan(snapshot);
-                    if (DefenseDiagnosticsSettings.EnableVerboseDefenseLogs)
-                    {
-                        LogDefenseActionPlan(actionPlan);
-                    }
-
-                    var stabilityReport = GetStabilityReport(actionPlan);
-                    var summary = _defenseDiagnosticsSummaryBuilder.Build(snapshot, actionPlan, stabilityReport);
-                    if (DefenseDiagnosticsSettings.EnableDefenseSummaryLogs)
-                    {
-                        LogDefenseSummary(summary);
-                    }
-
-                    if (DefenseDryRunSettings.EnableDryRunDefenseController)
-                    {
-                        var dryRunDecision = _dryRunDefenseController.EvaluateDryRun(summary, actionPlan, stabilityReport);
-                        LogDryRunDefenseDecision(dryRunDecision);
-                        var dryRunStabilityReport = GetDryRunStabilityReport(dryRunDecision);
-                        _dryRunDefenseReportAggregator.Record(dryRunDecision, dryRunStabilityReport);
-                        var defenseControllerDecision = _defenseController.Evaluate(summary, actionPlan, dryRunDecision, dryRunStabilityReport);
-                        LogDefenseControllerDecision(defenseControllerDecision);
-                        var defenseControllerSafetyReport = _defenseControllerSafetyGuard.Evaluate(summary, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerDecision);
-                        LogDefenseControllerSafety(defenseControllerSafetyReport);
-                        var commandReport = _defenseCommandInterface.RequestReinforcement(summary, actionPlan, dryRunDecision, defenseControllerSafetyReport);
-                        LogDefenseCommand(commandReport);
-                        if (DefenseScoreSimulationSettings.EnableDefenseScoreSimulation)
-                        {
-                            var scoreSimulationReport = _defenseScoreSimulator.Simulate(summary, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerSafetyReport);
-                            LogDefenseScoreSimulation(scoreSimulationReport);
-                            _defenseScoreSimulationSummaryBuilder.Record(scoreSimulationReport);
-                            _experimentalDefenseScoreInfluenceRegistry.Record(scoreSimulationReport, _observationTick);
-                        }
-                    }
-                }
-                observedCount++;
             }
 
             if (DefenseDryRunSettings.EnableDryRunDailyReport)
@@ -308,6 +288,88 @@ namespace CalradiaStrategicMind.Behaviors
             }
         }
 
+        private bool ObserveDefenseSettlement(Settlement settlement, DefenseEvaluationSnapshot? existingSnapshot)
+        {
+            if (!DefenseDiagnosticsSettings.EnableDefenseDiagnostics)
+            {
+                return true;
+            }
+
+            var snapshot = existingSnapshot.HasValue
+                ? existingSnapshot.Value
+                : _defenseEvaluationSnapshotBuilder.Build(settlement, MaxDefenseCandidatesPerSettlement);
+            if (DefenseDiagnosticsSettings.EnableVerboseDefenseLogs)
+            {
+                LogSettlementThreat(snapshot.ThreatReport);
+                LogSettlementValue(snapshot.ValueReport);
+                LogDefensePriority(snapshot.PriorityReport);
+            }
+
+            if (!ShouldRunFullDefensePipeline(snapshot))
+            {
+                if (DefenseDiagnosticsSettings.EnableVerboseDefenseLogs)
+                {
+                    CsmLogger.Info(
+                        $"Skipping full defense pipeline because settlement has no active siege or enemy army presence: tick={_observationTick}, settlement='{snapshot.ThreatReport.SettlementName}'");
+                }
+
+                return true;
+            }
+
+            if (!ShouldLogDefenseCandidates(snapshot.PriorityReport))
+            {
+                return true;
+            }
+
+            if (DefenseDiagnosticsSettings.EnableDefenseCandidateLogs)
+            {
+                LogDefenseCandidates(snapshot.CandidateReports);
+            }
+
+            if (DefenseDiagnosticsSettings.EnableVerboseDefenseLogs)
+            {
+                LogDefenseCoverage(snapshot.CoverageReport);
+                LogDefenseNeed(snapshot.NeedReport);
+            }
+
+            var actionPlan = _defenseActionPlanner.CreatePlan(snapshot);
+            if (DefenseDiagnosticsSettings.EnableVerboseDefenseLogs)
+            {
+                LogDefenseActionPlan(actionPlan);
+            }
+
+            var stabilityReport = GetStabilityReport(actionPlan);
+            var summary = _defenseDiagnosticsSummaryBuilder.Build(snapshot, actionPlan, stabilityReport);
+            if (DefenseDiagnosticsSettings.EnableDefenseSummaryLogs)
+            {
+                LogDefenseSummary(summary);
+                LogDefenseCoverageBreakdown(snapshot.CoverageReport);
+            }
+
+            if (DefenseDryRunSettings.EnableDryRunDefenseController)
+            {
+                var dryRunDecision = _dryRunDefenseController.EvaluateDryRun(summary, actionPlan, stabilityReport);
+                LogDryRunDefenseDecision(dryRunDecision);
+                var dryRunStabilityReport = GetDryRunStabilityReport(dryRunDecision);
+                _dryRunDefenseReportAggregator.Record(dryRunDecision, dryRunStabilityReport);
+                var defenseControllerDecision = _defenseController.Evaluate(summary, actionPlan, dryRunDecision, dryRunStabilityReport);
+                LogDefenseControllerDecision(defenseControllerDecision);
+                var defenseControllerSafetyReport = _defenseControllerSafetyGuard.Evaluate(summary, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerDecision);
+                LogDefenseControllerSafety(defenseControllerSafetyReport);
+                var commandReport = _defenseCommandInterface.RequestReinforcement(summary, actionPlan, dryRunDecision, defenseControllerSafetyReport);
+                LogDefenseCommand(commandReport);
+                if (DefenseScoreSimulationSettings.EnableDefenseScoreSimulation)
+                {
+                    var scoreSimulationReport = _defenseScoreSimulator.Simulate(summary, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerSafetyReport);
+                    LogDefenseScoreSimulation(scoreSimulationReport);
+                    _defenseScoreSimulationSummaryBuilder.Record(scoreSimulationReport);
+                    _experimentalDefenseScoreInfluenceRegistry.Record(scoreSimulationReport, _observationTick);
+                }
+            }
+
+            return true;
+        }
+
         private static bool ShouldObserveSettlement(Settlement settlement)
         {
             if (settlement == null)
@@ -321,6 +383,18 @@ namespace CalradiaStrategicMind.Behaviors
             }
 
             return settlement.IsTown || settlement.IsCastle;
+        }
+
+        private static bool HasActiveSiege(Settlement settlement)
+        {
+            return settlement != null && settlement.SiegeEvent != null;
+        }
+
+        private static bool ShouldRunFullDefensePipeline(DefenseEvaluationSnapshot snapshot)
+        {
+            return snapshot.ThreatReport.HasActiveSiege
+                || snapshot.CoverageReport.HasDirectSiegeThreat
+                || snapshot.CoverageReport.HasArmyPresence;
         }
 
         private void LogSettlementThreat(SettlementThreatReport report)
@@ -364,6 +438,27 @@ namespace CalradiaStrategicMind.Behaviors
         {
             CsmLogger.Info(
                 $"Observed defense coverage: tick={_observationTick}, settlement='{report.SettlementName}', owner='{report.OwnerKingdomName}', type={report.SettlementType}, garrisonStrength={report.GarrisonStrength:0.00}, nearbyFriendlyStrength={report.NearbyFriendlyStrength:0.00}, suitableCandidateCount={report.SuitableCandidateCount}, suitableCandidateStrength={report.SuitableCandidateStrength:0.00}, totalAvailableDefenseStrength={report.TotalAvailableDefenseStrength:0.00}, threatScore={report.ThreatScore:0.00}, siegeThreatScore={report.SiegeThreatScore:0.00}, armySiegeThreat={report.ArmySiegeThreat:0.00}, regionalEnemyPressure={report.RegionalEnemyPressure:0.00}, defenseCoverageRatio={report.DefenseCoverageRatio:0.00}, hasDirectSiegeThreat={report.HasDirectSiegeThreat}, hasArmyPresence={report.HasArmyPresence}, hasRegionalPressure={report.HasRegionalPressure}, isDefenseEnough={report.IsDefenseEnough}, needsReinforcement={report.NeedsReinforcement}, reason='{report.Reason}'");
+        }
+
+        private void LogDefenseCoverageBreakdown(DefenseCoverageReport report)
+        {
+            CsmLogger.Info(
+                $"Observed defense coverage breakdown: tick={_observationTick}, settlement='{report.SettlementName}', requiredThreatStrength={report.RequiredThreatStrength:0.00}, availableDefenseStrength={report.AvailableDefenseStrength:0.00}, garrisonDefenseStrength={report.GarrisonDefenseStrength:0.00}, nearbyFriendlyDefenseStrength={report.NearbyFriendlyDefenseStrength:0.00}, candidateDefenseStrength={report.CandidateDefenseStrength:0.00}, explicitDefenderStrength={report.ExplicitDefenderStrength:0.00}, explicitDefenderCount={report.ExplicitDefenderCount}, nearbyUncommittedStrength={report.NearbyUncommittedStrength:0.00}, nearbyUncommittedCount={report.NearbyUncommittedCount}, potentialCandidateStrength={report.PotentialCandidateStrength:0.00}, potentialCandidateCount={report.PotentialCandidateCount}, defenseIntentReason='{report.DefenseIntentReason}', enemySiegeThreatStrength={report.EnemySiegeThreatStrength:0.00}, nearbyEnemyThreatStrength={report.NearbyEnemyThreatStrength:0.00}, usedCandidateCount={report.UsedCandidateCount}, nearbyFriendlyPartyCount={report.NearbyFriendlyPartyCount}, nearbyEnemyPartyCount={report.NearbyEnemyPartyCount}, coverageRatio={report.DefenseCoverageRatio:0.00}, coverageStatus={GetCoverageStatus(report)}, reason='{report.Reason}'");
+        }
+
+        private static string GetCoverageStatus(DefenseCoverageReport report)
+        {
+            if (report.DefenseCoverageRatio <= DefenseActionThresholdSettings.UrgentDefenseCoverageRatioThreshold)
+            {
+                return "Critical";
+            }
+
+            if (report.DefenseCoverageRatio < DefenseActionThresholdSettings.ReinforcementCoverageRatioThreshold)
+            {
+                return "Low";
+            }
+
+            return report.IsDefenseEnough ? "Enough" : "Unknown";
         }
 
         private void LogDefenseNeed(DefenseNeedReport report)
@@ -415,7 +510,7 @@ namespace CalradiaStrategicMind.Behaviors
         private void LogDefenseSummary(DefenseDiagnosticsSummary summary)
         {
             CsmLogger.Info(
-                $"Observed defense summary: tick={_observationTick}, settlement='{summary.SettlementName}', owner='{summary.OwnerKingdomName}', threatType={summary.ThreatType}, action='{summary.RecommendedAction}', stableAction='{summary.StableRecommendedAction}', isStable={summary.IsStable}, shouldEscalate={summary.ShouldEscalate}, shouldDeescalate={summary.ShouldDeescalate}, priority={summary.DefensePriority:0.00}, coverageRatio={summary.DefenseCoverageRatio:0.00}, coverageStatus={summary.CoverageStatus}, primaryCandidate='{summary.PrimaryCandidateName}', primaryCandidateCategory={summary.PrimaryCandidateCategory}, confidence={summary.PlanConfidence:0.00}, reason='{summary.Reason}'");
+                $"Observed defense summary: tick={_observationTick}, settlement='{summary.SettlementName}', settlementType={summary.SettlementType}, owner='{summary.OwnerKingdomName}', threatType={summary.ThreatType}, action='{summary.RecommendedAction}', stableAction='{summary.StableRecommendedAction}', isStable={summary.IsStable}, shouldEscalate={summary.ShouldEscalate}, shouldDeescalate={summary.ShouldDeescalate}, priority={summary.DefensePriority:0.00}, coverageRatio={summary.DefenseCoverageRatio:0.00}, coverageStatus={summary.CoverageStatus}, primaryCandidate='{summary.PrimaryCandidateName}', primaryCandidateCategory={summary.PrimaryCandidateCategory}, confidence={summary.PlanConfidence:0.00}, reason='{summary.Reason}'");
         }
 
         private void LogDryRunDefenseDecision(DryRunDefenseDecision decision)
@@ -499,6 +594,16 @@ namespace CalradiaStrategicMind.Behaviors
             }
 
             return party.Name.ToString();
+        }
+
+        private static string GetSettlementName(Settlement settlement)
+        {
+            if (settlement == null || settlement.Name == null)
+            {
+                return "unknown";
+            }
+
+            return settlement.Name.ToString();
         }
     }
 }

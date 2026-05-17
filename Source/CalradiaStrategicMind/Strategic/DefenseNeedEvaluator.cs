@@ -1,3 +1,4 @@
+using CalradiaStrategicMind.Settings;
 using CalradiaStrategicMind.Utils;
 using TaleWorlds.CampaignSystem.Settlements;
 
@@ -74,12 +75,25 @@ namespace CalradiaStrategicMind.Strategic
 
         private static string GetRecommendedAction(DefensePriorityReport priorityReport, DefenseCoverageReport coverageReport)
         {
-            if (priorityReport.HasActiveSiege && coverageReport.NeedsReinforcement)
+            if (priorityReport.DefensePriority < DefenseActionThresholdSettings.MinimumActionPriority)
+            {
+                return coverageReport.HasArmyPresence || coverageReport.HasRegionalPressure || coverageReport.HasDirectSiegeThreat
+                    ? "Monitor"
+                    : "None";
+            }
+
+            var isCriticalCoverage = coverageReport.DefenseCoverageRatio <= DefenseActionThresholdSettings.UrgentDefenseCoverageRatioThreshold;
+            var isLowCoverage = coverageReport.DefenseCoverageRatio < DefenseActionThresholdSettings.ReinforcementCoverageRatioThreshold;
+            var isUrgentThreat = priorityReport.HasActiveSiege
+                || (coverageReport.HasDirectSiegeThreat && isCriticalCoverage)
+                || (coverageReport.HasArmyPresence && priorityReport.DefensePriority >= DefenseActionThresholdSettings.MinimumUrgentPriority);
+
+            if (isUrgentThreat && isLowCoverage && priorityReport.DefensePriority >= DefenseActionThresholdSettings.MinimumUrgentPriority)
             {
                 return "UrgentDefense";
             }
 
-            if (coverageReport.HasDirectSiegeThreat && coverageReport.NeedsReinforcement)
+            if ((coverageReport.HasDirectSiegeThreat || coverageReport.HasArmyPresence) && isLowCoverage)
             {
                 return "Reinforce";
             }
@@ -101,19 +115,33 @@ namespace CalradiaStrategicMind.Strategic
         {
             if (recommendedAction == "UrgentDefense")
             {
-                return "Active siege with low defense coverage";
+                return coverageReport.DefenseCoverageRatio <= DefenseActionThresholdSettings.UrgentDefenseCoverageRatioThreshold
+                    ? "Urgent defense: critical coverage against immediate threat"
+                    : "Urgent defense: high army pressure and high priority";
             }
 
             if (recommendedAction == "Reinforce")
             {
-                return "Direct siege threat with low defense coverage";
+                return coverageReport.DefenseCoverageRatio < DefenseActionThresholdSettings.ReinforcementCoverageRatioThreshold
+                    ? "Request reinforcement: low coverage against relevant threat"
+                    : "Request reinforcement: relevant threat needs support";
             }
 
             if (recommendedAction == "Monitor")
             {
+                if (coverageReport.HasArmyPresence && coverageReport.IsDefenseEnough)
+                {
+                    return "Monitor: army presence covered by current defense";
+                }
+
+                if (coverageReport.HasDirectSiegeThreat)
+                {
+                    return "Monitor: threat below action priority threshold";
+                }
+
                 return coverageReport.HasArmyPresence
-                    ? "Army presence covered by current defense"
-                    : "Regional pressure only";
+                    ? "Monitor: army presence without low coverage"
+                    : "Monitor: regional pressure only";
             }
 
             return "No defense action needed";
