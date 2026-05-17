@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using CalradiaStrategicMind.Logging;
 using CalradiaStrategicMind.Settings;
 using CalradiaStrategicMind.Utils;
 using TaleWorlds.CampaignSystem;
@@ -11,10 +12,12 @@ namespace CalradiaStrategicMind.Strategic
     public class CsmArmyFormationDirector
     {
         private readonly PartyStrengthEvaluator _partyStrengthEvaluator;
+        private readonly CsmArmyAttackTargetScorer _targetScorer;
 
         public CsmArmyFormationDirector()
         {
             _partyStrengthEvaluator = new PartyStrengthEvaluator();
+            _targetScorer = new CsmArmyAttackTargetScorer();
         }
 
         public List<CsmArmyDirectorReport> Execute(
@@ -65,8 +68,9 @@ namespace CalradiaStrategicMind.Strategic
                 }
 
                 OffensiveOpportunity opportunity;
-                if (!TryFindOpportunity(kingdom, defenseSnapshots, registry, out opportunity))
+                if (!TryFindOpportunity(kingdom, defenseSnapshots, registry, observationTick, kingdomName, out opportunity))
                 {
+                    reports.Add(CreateReport(observationTick, "none", kingdomName, "AttackSettlement", "none", false, "Skipped", "No attack target passed Army Target Scoring"));
                     continue;
                 }
 
@@ -111,15 +115,26 @@ namespace CalradiaStrategicMind.Strategic
             return reports;
         }
 
-        private bool TryFindOpportunity(Kingdom kingdom, List<DefenseEvaluationSnapshot> defenseSnapshots, CsmArmyAssignmentRegistry registry, out OffensiveOpportunity opportunity)
+        private bool TryFindOpportunity(Kingdom kingdom, List<DefenseEvaluationSnapshot> defenseSnapshots, CsmArmyAssignmentRegistry registry, int tick, string kingdomName, out OffensiveOpportunity opportunity)
         {
             opportunity = default(OffensiveOpportunity);
-            var target = FindBestAttackTarget(kingdom, defenseSnapshots, registry);
-            if (target == null)
+            var provisionalLeader = FindBestFormationLeader(kingdom);
+            if (provisionalLeader == null)
             {
                 return false;
             }
 
+            var estimatedStrength = EstimateFormationStrength(kingdom, provisionalLeader);
+            var score = _targetScorer.FindBestTarget(kingdom, provisionalLeader, estimatedStrength, defenseSnapshots, registry);
+            if (score == null)
+            {
+                var rejected = _targetScorer.FindBestRejectedTarget(kingdom, provisionalLeader, estimatedStrength, defenseSnapshots, registry);
+                LogTargetRejection(tick, kingdomName, GetPartyName(provisionalLeader), rejected);
+                return false;
+            }
+
+            LogTargetScore(tick, kingdomName, GetPartyName(provisionalLeader), score);
+            var target = score.Target;
             var parties = FindFormationParties(kingdom, target);
             if (parties.Count < ArmyDirectorSettings.MinOffensiveFormationParties)
             {
@@ -143,8 +158,73 @@ namespace CalradiaStrategicMind.Strategic
                 return false;
             }
 
+            score = _targetScorer.ScoreTarget(kingdom, parties[0], totalStrength, target, defenseSnapshots, registry);
+            if (!_targetScorer.IsPassed(score))
+            {
+                LogTargetRejection(tick, kingdomName, GetPartyName(parties[0]), score);
+                return false;
+            }
+
             opportunity = new OffensiveOpportunity(target, parties);
             return true;
+        }
+
+        private MobileParty FindBestFormationLeader(Kingdom kingdom)
+        {
+            var parties = kingdom?.WarPartyComponents;
+            MobileParty best = null;
+            var bestStrength = 0f;
+            if (parties == null)
+            {
+                return null;
+            }
+
+            for (var index = 0; index < parties.Count; index++)
+            {
+                var party = parties[index].MobileParty;
+                if (!IsFreeLordParty(party))
+                {
+                    continue;
+                }
+
+                var strength = _partyStrengthEvaluator.EvaluatePartyStrength(party);
+                if (strength > bestStrength)
+                {
+                    best = party;
+                    bestStrength = strength;
+                }
+            }
+
+            return best;
+        }
+
+        private float EstimateFormationStrength(Kingdom kingdom, MobileParty anchorParty)
+        {
+            var strength = 0f;
+            var parties = kingdom?.WarPartyComponents;
+            var count = 0;
+            if (parties == null || anchorParty == null)
+            {
+                return strength;
+            }
+
+            for (var index = 0; index < parties.Count; index++)
+            {
+                var party = parties[index].MobileParty;
+                if (!IsFreeLordParty(party) || party.Position.Distance(anchorParty.Position) > ArmyDirectorSettings.MaxAttackTargetDistance)
+                {
+                    continue;
+                }
+
+                strength += _partyStrengthEvaluator.EvaluatePartyStrength(party);
+                count++;
+                if (count >= ArmyDirectorSettings.MaxOffensiveFormationParties)
+                {
+                    return strength;
+                }
+            }
+
+            return strength;
         }
 
         private static Army CreateTrueArmy(Kingdom kingdom, OffensiveOpportunity opportunity, out string reason)
@@ -226,64 +306,6 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             return null;
-        }
-
-        private Settlement FindBestAttackTarget(Kingdom kingdom, List<DefenseEvaluationSnapshot> defenseSnapshots, CsmArmyAssignmentRegistry registry)
-        {
-            var settlements = Settlement.All;
-            if (settlements == null)
-            {
-                return null;
-            }
-
-            Settlement bestTarget = null;
-            var bestScore = 0f;
-            for (var index = 0; index < settlements.Count; index++)
-            {
-                var settlement = settlements[index];
-                if (settlement == null || !settlement.IsFortification || !settlement.IsCastle)
-                {
-                    continue;
-                }
-
-                if (settlement.MapFaction == null || settlement.MapFaction == kingdom || !kingdom.IsAtWarWith(settlement.MapFaction))
-                {
-                    continue;
-                }
-
-                if (registry.GetActiveAssignmentForTarget("AttackSettlement", GetSettlementId(settlement), GetSettlementName(settlement)) != null
-                    || IsActiveDefenseTarget(settlement, defenseSnapshots))
-                {
-                    continue;
-                }
-
-                var parties = FindFormationParties(kingdom, settlement);
-                if (parties.Count < ArmyDirectorSettings.MinOffensiveFormationParties)
-                {
-                    continue;
-                }
-
-                var strength = 0f;
-                for (var partyIndex = 0; partyIndex < parties.Count; partyIndex++)
-                {
-                    strength += _partyStrengthEvaluator.EvaluatePartyStrength(parties[partyIndex]);
-                }
-
-                if (strength < ArmyDirectorSettings.MinimumArmyStrengthForAttack)
-                {
-                    continue;
-                }
-
-                var defense = GetSettlementDefenseStrength(settlement);
-                var score = defense <= 0f ? strength : strength / defense;
-                if (score > bestScore)
-                {
-                    bestTarget = settlement;
-                    bestScore = score;
-                }
-            }
-
-            return bestTarget;
         }
 
         private List<MobileParty> FindFormationParties(Kingdom kingdom, Settlement target)
@@ -408,27 +430,6 @@ namespace CalradiaStrategicMind.Strategic
                 && kingdom != Clan.PlayerClan.Kingdom;
         }
 
-        private static bool IsActiveDefenseTarget(Settlement settlement, List<DefenseEvaluationSnapshot> defenseSnapshots)
-        {
-            if (settlement == null || defenseSnapshots == null)
-            {
-                return false;
-            }
-
-            var settlementName = GetSettlementName(settlement);
-            for (var index = 0; index < defenseSnapshots.Count; index++)
-            {
-                var defense = defenseSnapshots[index];
-                if (defense.ThreatReport.SettlementName == settlementName
-                    && (defense.ThreatReport.HasActiveSiege || defense.CoverageReport.HasDirectSiegeThreat || defense.CoverageReport.HasArmyPresence))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
         private static float GetSettlementDefenseStrength(Settlement settlement)
         {
             var strength = 0f;
@@ -454,6 +455,28 @@ namespace CalradiaStrategicMind.Strategic
         private static CsmArmyDirectorReport CreateReport(int tick, string army, string kingdom, string objective, string target, bool applied, string status, string reason)
         {
             return new CsmArmyDirectorReport(tick, army, kingdom, objective, target, applied, status, reason);
+        }
+
+        private static void LogTargetScore(int tick, string kingdomName, string armyName, CsmArmyAttackTargetScore score)
+        {
+            if (!ArmyDirectorSettings.EnableArmyDirectorLogs || score == null)
+            {
+                return;
+            }
+
+            CsmLogger.Info(
+                $"Observed CSM army target score: tick={tick}, kingdom='{kingdomName}', army='{armyName}', selectedTarget='{score.TargetName}', score={score.Score:0.00}, distance={score.Distance:0.00}, targetDefense={score.TargetDefenseStrength:0.00}, estimatedAttackStrength={score.EstimatedAttackStrength:0.00}, strengthRatio={score.StrengthRatio:0.00}, nearbyEnemyArmyStrength={score.NearbyEnemyArmyStrength:0.00}, nearbyFriendlySupportStrength={score.NearbyFriendlySupportStrength:0.00}, isFrontline={score.IsFrontlineCandidate}, reason='{score.Reason}'");
+        }
+
+        private static void LogTargetRejection(int tick, string kingdomName, string armyName, CsmArmyAttackTargetScore score)
+        {
+            if (!ArmyDirectorSettings.EnableArmyDirectorLogs || score == null)
+            {
+                return;
+            }
+
+            CsmLogger.Info(
+                $"Observed CSM army target rejection: tick={tick}, kingdom='{kingdomName}', army='{armyName}', topRejectedTarget='{score.TargetName}', score={score.Score:0.00}, distance={score.Distance:0.00}, targetDefense={score.TargetDefenseStrength:0.00}, estimatedAttackStrength={score.EstimatedAttackStrength:0.00}, strengthRatio={score.StrengthRatio:0.00}, nearbyEnemyArmyStrength={score.NearbyEnemyArmyStrength:0.00}, nearbyFriendlySupportStrength={score.NearbyFriendlySupportStrength:0.00}, isFrontline={score.IsFrontlineCandidate}, reason='{score.Reason}'");
         }
 
         private static string GetKingdomName(Kingdom kingdom)

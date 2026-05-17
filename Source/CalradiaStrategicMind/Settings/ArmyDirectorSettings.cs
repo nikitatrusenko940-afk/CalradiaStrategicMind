@@ -41,5 +41,28 @@ namespace CalradiaStrategicMind.Settings
 
         public static int MaxOffensiveFormationParties = 6;
         public static int MinOffensiveFormationParties = 3;
+
+        public static bool EnableArmyTargetScoring = true;
+        public static bool PreferCastlesForAlpha = true;
+
+        public static float MinimumAttackTargetScore = 50f;
+
+        public static float CastleTargetBonus = 20f;
+        public static float TownTargetBonus = 5f;
+        public static float TownTooStrongPenalty = 40f;
+
+        public static float DistancePenaltyPerMapUnit = 0.35f;
+        public static float TargetDefensePenaltyMultiplier = 0.04f;
+        public static float StrengthRatioScoreMultiplier = 45f;
+        public static float NearbyEnemyArmyPenaltyMultiplier = 0.06f;
+        public static float NearbyFriendlySupportBonusMultiplier = 0.03f;
+        public static float FrontlineTargetBonus = 25f;
+        public static float AlreadyBesiegedPenalty = 100f;
+        public static float ActiveDefenseTargetPenalty = 100f;
+        public static float DeepEnemyTerritoryPenalty = 35f;
+
+        public static float MaxNearbyEnemyArmyScanDistance = 80f;
+        public static float MaxNearbyFriendlySupportScanDistance = 60f;
+        public static float MaxFrontlineDistanceFromFriendlyFortification = 90f;
     }
 }

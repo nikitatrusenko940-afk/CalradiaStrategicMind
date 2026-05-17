@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using CalradiaStrategicMind.Logging;
 using CalradiaStrategicMind.Settings;
 using TaleWorlds.CampaignSystem;
 using TaleWorlds.CampaignSystem.Party;
@@ -8,6 +9,13 @@ namespace CalradiaStrategicMind.Strategic
 {
     public class CsmArmyOperationalDirector
     {
+        private readonly CsmArmyAttackTargetScorer _targetScorer;
+
+        public CsmArmyOperationalDirector()
+        {
+            _targetScorer = new CsmArmyAttackTargetScorer();
+        }
+
         public List<CsmArmyDirectorReport> Execute(
             List<CsmArmySnapshot> snapshots,
             List<DefenseEvaluationSnapshot> defenseSnapshots,
@@ -51,12 +59,12 @@ namespace CalradiaStrategicMind.Strategic
                     continue;
                 }
 
-                if (TryRedirectBadSiege(snapshot, defenseSnapshots, registry, observationTick, reports))
+                if (TryRedirectBadSiege(snapshot, defenseSnapshots, registry, _targetScorer, observationTick, reports))
                 {
                     continue;
                 }
 
-                TryAssignAttackTarget(snapshot, defenseSnapshots, registry, observationTick, reports);
+                TryAssignAttackTarget(snapshot, defenseSnapshots, registry, _targetScorer, observationTick, reports);
             }
 
             return reports;
@@ -173,7 +181,7 @@ namespace CalradiaStrategicMind.Strategic
             return false;
         }
 
-        private static bool TryRedirectBadSiege(CsmArmySnapshot snapshot, List<DefenseEvaluationSnapshot> defenseSnapshots, CsmArmyAssignmentRegistry registry, int tick, List<CsmArmyDirectorReport> reports)
+        private static bool TryRedirectBadSiege(CsmArmySnapshot snapshot, List<DefenseEvaluationSnapshot> defenseSnapshots, CsmArmyAssignmentRegistry registry, CsmArmyAttackTargetScorer targetScorer, int tick, List<CsmArmyDirectorReport> reports)
         {
             if (!ArmyDirectorSettings.AllowBadSiegeRedirect || snapshot.CurrentTargetSettlement == null || snapshot.CurrentObjectiveGuess != "BesiegingSettlement")
             {
@@ -186,9 +194,11 @@ namespace CalradiaStrategicMind.Strategic
                 return false;
             }
 
-            var target = FindAttackTarget(snapshot, defenseSnapshots);
-            if (target == null)
+            var score = targetScorer.FindBestTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry);
+            if (score == null)
             {
+                var rejected = targetScorer.FindBestRejectedTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry);
+                LogTargetRejection(tick, snapshot, rejected);
                 var activeAssignment = registry.GetActiveAssignmentForArmy(snapshot.ArmyId);
                 if (activeAssignment != null)
                 {
@@ -199,6 +209,8 @@ namespace CalradiaStrategicMind.Strategic
                 return true;
             }
 
+            LogTargetScore(tick, snapshot, score);
+            var target = score.Target;
             CsmArmyAssignment assignment;
             if (!registry.TryCreate(snapshot.ArmyId, snapshot.ArmyName, GetPartyId(snapshot.LeaderParty), GetPartyName(snapshot.LeaderParty), snapshot.KingdomName, "RedirectFromBadSiege", GetSettlementId(target), GetSettlementName(target), tick, "Bad siege redirected to better attack target", "VanillaArmy", out assignment))
             {
@@ -218,7 +230,7 @@ namespace CalradiaStrategicMind.Strategic
             return true;
         }
 
-        private static bool TryAssignAttackTarget(CsmArmySnapshot snapshot, List<DefenseEvaluationSnapshot> defenseSnapshots, CsmArmyAssignmentRegistry registry, int tick, List<CsmArmyDirectorReport> reports)
+        private static bool TryAssignAttackTarget(CsmArmySnapshot snapshot, List<DefenseEvaluationSnapshot> defenseSnapshots, CsmArmyAssignmentRegistry registry, CsmArmyAttackTargetScorer targetScorer, int tick, List<CsmArmyDirectorReport> reports)
         {
             if (snapshot.TotalStrength < ArmyDirectorSettings.MinimumArmyStrengthForAttack)
             {
@@ -230,12 +242,17 @@ namespace CalradiaStrategicMind.Strategic
                 return false;
             }
 
-            var target = FindAttackTarget(snapshot, defenseSnapshots);
-            if (target == null)
+            var score = targetScorer.FindBestTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry);
+            if (score == null)
             {
+                var rejected = targetScorer.FindBestRejectedTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry);
+                LogTargetRejection(tick, snapshot, rejected);
+                reports.Add(CreateReport(tick, snapshot, "AttackSettlement", "none", false, "Skipped", "No attack target passed Army Target Scoring"));
                 return false;
             }
 
+            LogTargetScore(tick, snapshot, score);
+            var target = score.Target;
             CsmArmyAssignment assignment;
             if (!registry.TryCreate(snapshot.ArmyId, snapshot.ArmyName, GetPartyId(snapshot.LeaderParty), GetPartyName(snapshot.LeaderParty), snapshot.KingdomName, "AttackSettlement", GetSettlementId(target), GetSettlementName(target), tick, "Existing army assigned attack settlement", "VanillaArmy", out assignment))
             {
@@ -318,51 +335,6 @@ namespace CalradiaStrategicMind.Strategic
             leaderParty.SetMoveBesiegeSettlement(target, leaderParty.NavigationCapability);
         }
 
-        private static Settlement FindAttackTarget(CsmArmySnapshot snapshot, List<DefenseEvaluationSnapshot> defenseSnapshots)
-        {
-            var settlements = Settlement.All;
-            Settlement best = null;
-            var bestRatio = 0f;
-            if (settlements == null)
-            {
-                return null;
-            }
-
-            for (var index = 0; index < settlements.Count; index++)
-            {
-                var settlement = settlements[index];
-                if (settlement == null
-                    || !settlement.IsFortification
-                    || settlement.MapFaction == null
-                    || settlement.MapFaction == snapshot.LeaderParty.MapFaction
-                    || !snapshot.LeaderParty.MapFaction.IsAtWarWith(settlement.MapFaction)
-                    || IsActiveDefenseTarget(settlement, defenseSnapshots))
-                {
-                    continue;
-                }
-
-                if (settlement.Position.Distance(snapshot.LeaderParty.Position) > ArmyDirectorSettings.MaxAttackTargetDistance)
-                {
-                    continue;
-                }
-
-                var defense = GetSettlementDefenseStrength(settlement);
-                if (defense <= 0f)
-                {
-                    defense = 1f;
-                }
-
-                var ratio = snapshot.TotalStrength / defense;
-                if (ratio >= ArmyDirectorSettings.GoodAttackRequiredStrengthRatio && ratio > bestRatio)
-                {
-                    best = settlement;
-                    bestRatio = ratio;
-                }
-            }
-
-            return best;
-        }
-
         private static bool IsUrgentDefense(DefenseEvaluationSnapshot snapshot)
         {
             return (snapshot.ThreatReport.HasActiveSiege || snapshot.CoverageReport.HasDirectSiegeThreat || snapshot.CoverageReport.HasArmyPresence)
@@ -384,27 +356,6 @@ namespace CalradiaStrategicMind.Strategic
         private static bool IsAttackObjective(string objective)
         {
             return objective == "AttackSettlement" || objective == "RedirectFromBadSiege";
-        }
-
-        private static bool IsActiveDefenseTarget(Settlement settlement, List<DefenseEvaluationSnapshot> defenseSnapshots)
-        {
-            if (settlement == null || defenseSnapshots == null)
-            {
-                return false;
-            }
-
-            var settlementName = GetSettlementName(settlement);
-            for (var index = 0; index < defenseSnapshots.Count; index++)
-            {
-                var defense = defenseSnapshots[index];
-                if (defense.ThreatReport.SettlementName == settlementName
-                    && (defense.ThreatReport.HasActiveSiege || defense.CoverageReport.HasDirectSiegeThreat || defense.CoverageReport.HasArmyPresence))
-                {
-                    return true;
-                }
-            }
-
-            return false;
         }
 
         private static float GetSettlementDefenseStrength(Settlement settlement)
@@ -461,6 +412,28 @@ namespace CalradiaStrategicMind.Strategic
         private static CsmArmyDirectorReport CreateReport(int tick, CsmArmySnapshot snapshot, string objective, string target, bool applied, string status, string reason)
         {
             return new CsmArmyDirectorReport(tick, snapshot.ArmyName, snapshot.KingdomName, objective, target, applied, status, reason);
+        }
+
+        private static void LogTargetScore(int tick, CsmArmySnapshot snapshot, CsmArmyAttackTargetScore score)
+        {
+            if (!ArmyDirectorSettings.EnableArmyDirectorLogs || score == null)
+            {
+                return;
+            }
+
+            CsmLogger.Info(
+                $"Observed CSM army target score: tick={tick}, kingdom='{snapshot.KingdomName}', army='{snapshot.ArmyName}', selectedTarget='{score.TargetName}', score={score.Score:0.00}, distance={score.Distance:0.00}, targetDefense={score.TargetDefenseStrength:0.00}, estimatedAttackStrength={score.EstimatedAttackStrength:0.00}, strengthRatio={score.StrengthRatio:0.00}, nearbyEnemyArmyStrength={score.NearbyEnemyArmyStrength:0.00}, nearbyFriendlySupportStrength={score.NearbyFriendlySupportStrength:0.00}, isFrontline={score.IsFrontlineCandidate}, reason='{score.Reason}'");
+        }
+
+        private static void LogTargetRejection(int tick, CsmArmySnapshot snapshot, CsmArmyAttackTargetScore score)
+        {
+            if (!ArmyDirectorSettings.EnableArmyDirectorLogs || score == null)
+            {
+                return;
+            }
+
+            CsmLogger.Info(
+                $"Observed CSM army target rejection: tick={tick}, kingdom='{snapshot.KingdomName}', army='{snapshot.ArmyName}', topRejectedTarget='{score.TargetName}', score={score.Score:0.00}, distance={score.Distance:0.00}, targetDefense={score.TargetDefenseStrength:0.00}, estimatedAttackStrength={score.EstimatedAttackStrength:0.00}, strengthRatio={score.StrengthRatio:0.00}, nearbyEnemyArmyStrength={score.NearbyEnemyArmyStrength:0.00}, nearbyFriendlySupportStrength={score.NearbyFriendlySupportStrength:0.00}, isFrontline={score.IsFrontlineCandidate}, reason='{score.Reason}'");
         }
 
         private static string GetPartyId(MobileParty party)
