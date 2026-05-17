@@ -1,5 +1,6 @@
 param(
-    [switch]$AllowExperimentalAi
+    [switch]$AllowExperimentalAi,
+    [switch]$AllowDirectDefenseCommand
 )
 
 $ErrorActionPreference = "Stop"
@@ -47,6 +48,11 @@ $experimentalAiAllowedPatterns = @(
     "PartyThinkParams"
 )
 
+$directDefenseCommandAllowedPath = ".\Source\CalradiaStrategicMind\Strategic\DirectDefenseCommandController.cs"
+$directDefenseCommandAllowedPatterns = @(
+    "SetMoveDefendSettlement"
+)
+
 function Test-IsAllowedFinding {
     param(
         [string]$Path,
@@ -65,6 +71,12 @@ function Test-IsAllowedFinding {
     if ($AllowExperimentalAi -and
         $Path -eq $experimentalAiAllowedPath -and
         $experimentalAiAllowedPatterns -contains $Pattern) {
+        return $true
+    }
+
+    if ($AllowDirectDefenseCommand -and
+        $Path -eq $directDefenseCommandAllowedPath -and
+        $directDefenseCommandAllowedPatterns -contains $Pattern) {
         return $true
     }
 

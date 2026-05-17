@@ -27,6 +27,7 @@ namespace CalradiaStrategicMind.Behaviors
         private readonly DefenseController _defenseController;
         private readonly DefenseControllerSafetyGuard _defenseControllerSafetyGuard;
         private readonly DefenseCommandInterface _defenseCommandInterface;
+        private readonly DirectDefenseCommandController _directDefenseCommandController;
         private readonly DefenseScoreSimulator _defenseScoreSimulator;
         private readonly DefenseScoreSimulationSummaryBuilder _defenseScoreSimulationSummaryBuilder;
         private readonly ExperimentalDefenseScoreInfluenceRegistry _experimentalDefenseScoreInfluenceRegistry;
@@ -48,6 +49,7 @@ namespace CalradiaStrategicMind.Behaviors
             _defenseController = new DefenseController();
             _defenseControllerSafetyGuard = new DefenseControllerSafetyGuard();
             _defenseCommandInterface = new DefenseCommandInterface();
+            _directDefenseCommandController = new DirectDefenseCommandController();
             _defenseScoreSimulator = new DefenseScoreSimulator();
             _defenseScoreSimulationSummaryBuilder = new DefenseScoreSimulationSummaryBuilder();
             _experimentalDefenseScoreInfluenceRegistry = new ExperimentalDefenseScoreInfluenceRegistry();
@@ -356,6 +358,27 @@ namespace CalradiaStrategicMind.Behaviors
                 LogDefenseControllerDecision(defenseControllerDecision);
                 var defenseControllerSafetyReport = _defenseControllerSafetyGuard.Evaluate(summary, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerDecision);
                 LogDefenseControllerSafety(defenseControllerSafetyReport);
+                if (DefenseAssignmentSettings.EnableDefenseAssignments)
+                {
+                    var assignmentReports = _directDefenseCommandController.ProcessAssignments(snapshot, _observationTick);
+                    LogDefenseAssignmentReports(assignmentReports);
+                }
+
+                if (DirectDefenseCommandSettings.EnableDirectDefenseCommand)
+                {
+                    var directCommandReport = _directDefenseCommandController.Execute(snapshot, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerSafetyReport, _observationTick);
+                    if (DirectDefenseCommandSettings.EnableDirectDefenseCommandLogs)
+                    {
+                        LogDirectDefenseCommand(directCommandReport);
+                    }
+
+                    if (DefenseAssignmentSettings.EnableDefenseAssignments)
+                    {
+                        var assignmentReports = _directDefenseCommandController.ConsumePendingAssignmentReports();
+                        LogDefenseAssignmentReports(assignmentReports);
+                    }
+                }
+
                 var commandReport = _defenseCommandInterface.RequestReinforcement(summary, actionPlan, dryRunDecision, defenseControllerSafetyReport);
                 LogDefenseCommand(commandReport);
                 if (DefenseScoreSimulationSettings.EnableDefenseScoreSimulation)
@@ -541,6 +564,27 @@ namespace CalradiaStrategicMind.Behaviors
         {
             CsmLogger.Info(
                 $"Observed defense command: tick={_observationTick}, settlement='{report.SettlementName}', owner='{report.OwnerKingdomName}', commandType='{report.CommandType}', candidate='{report.CandidateName}', candidateCategory={report.CandidateCategory}, isAllowed={report.IsAllowed}, wasExecuted={report.WasExecuted}, reason='{report.Reason}'");
+        }
+
+        private static void LogDirectDefenseCommand(DirectDefenseCommandReport report)
+        {
+            CsmLogger.Info(
+                $"Observed direct defense command: tick={report.ObservationTick}, settlement='{report.SettlementName}', candidate='{report.CandidateName}', commandApplied={report.CommandApplied}, reason='{report.Reason}'");
+        }
+
+        private static void LogDefenseAssignmentReports(System.Collections.Generic.List<CsmDefenseAssignmentReport> reports)
+        {
+            if (!DefenseAssignmentSettings.EnableAssignmentLogs || reports == null)
+            {
+                return;
+            }
+
+            for (var index = 0; index < reports.Count; index++)
+            {
+                var report = reports[index];
+                CsmLogger.Info(
+                    $"Observed CSM defense assignment: tick={report.ObservationTick}, settlement='{report.SettlementName}', party='{report.PartyName}', status='{report.Status}', commandApplied={report.CommandApplied}, reason='{report.Reason}'");
+            }
         }
 
         private void LogDefenseScoreSimulation(DefenseScoreSimulationReport report)

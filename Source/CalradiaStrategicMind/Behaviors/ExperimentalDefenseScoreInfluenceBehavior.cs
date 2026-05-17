@@ -93,9 +93,14 @@ namespace CalradiaStrategicMind.Behaviors
                 return CreateReport(currentTick, partyName, scoreReport.SettlementName, true, false, false, false, scoreReport.HypotheticalScore, 0f, "Hypothetical score below minimum");
             }
 
-            if (IsNonExecutableAction(scoreReport.RecommendedAction))
+            if (!IsExecutableDefenseAction(scoreReport.RecommendedAction))
             {
                 return CreateReport(currentTick, partyName, scoreReport.SettlementName, true, false, false, false, scoreReport.HypotheticalScore, 0f, "Non-executable score simulation action");
+            }
+
+            if (!IsLowOrCriticalCoverage(scoreReport.CoverageStatus))
+            {
+                return CreateReport(currentTick, partyName, scoreReport.SettlementName, true, false, false, false, scoreReport.HypotheticalScore, 0f, "Coverage status is not low or critical");
             }
 
             if (!string.IsNullOrWhiteSpace(settlementFilter) && !NamesEqual(scoreReport.SettlementName, settlementFilter))
@@ -155,11 +160,19 @@ namespace CalradiaStrategicMind.Behaviors
             return scaledBoost > maxScoreBoost ? maxScoreBoost : scaledBoost;
         }
 
-        private static bool IsNonExecutableAction(string action)
+        private static bool IsExecutableDefenseAction(string action)
         {
-            return NamesEqual(action, "Monitor")
-                || NamesEqual(action, "Ignore")
-                || NamesEqual(action, "Wait");
+            return NamesEqual(action, "RequestReinforcement")
+                || NamesEqual(action, "Reinforcement")
+                || NamesEqual(action, "Reinforce")
+                || NamesEqual(action, "RequestUrgentDefense")
+                || NamesEqual(action, "UrgentDefense");
+        }
+
+        private static bool IsLowOrCriticalCoverage(string coverageStatus)
+        {
+            return NamesEqual(coverageStatus, "Low")
+                || NamesEqual(coverageStatus, "Critical");
         }
 
         private static Settlement FindSettlementByName(string settlementName)
@@ -251,6 +264,7 @@ namespace CalradiaStrategicMind.Behaviors
                 || reason == "Settlement name filter required"
                 || reason == "Hypothetical score below minimum"
                 || reason == "Non-executable score simulation action"
+                || reason == "Coverage status is not low or critical"
                 || reason == "Settlement filter mismatch"
                 || (reason == "No recent score simulation report" && ExperimentalDefenseScoreInfluenceSettings.LogNoRecentScoreSimulationReport)
                 || (reason == "Party is army member and not leader" && ExperimentalDefenseScoreInfluenceSettings.LogArmyMemberSkip);
