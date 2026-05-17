@@ -16,6 +16,8 @@ namespace CalradiaStrategicMind.Strategic
         public bool IsCastle { get; set; }
         public bool IsTown { get; set; }
         public bool IsFrontlineCandidate { get; set; }
+        public bool UsesExtendedFrontlineRule { get; set; }
+        public float DistanceLimit { get; set; }
         public bool IsAlreadyAssigned { get; set; }
         public bool IsAlreadyBesieged { get; set; }
         public bool IsActiveDefenseTarget { get; set; }

@@ -422,7 +422,7 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             CsmLogger.Info(
-                $"Observed CSM army target score: tick={tick}, kingdom='{snapshot.KingdomName}', army='{snapshot.ArmyName}', selectedTarget='{score.TargetName}', score={score.Score:0.00}, distance={score.Distance:0.00}, targetDefense={score.TargetDefenseStrength:0.00}, estimatedAttackStrength={score.EstimatedAttackStrength:0.00}, strengthRatio={score.StrengthRatio:0.00}, nearbyEnemyArmyStrength={score.NearbyEnemyArmyStrength:0.00}, nearbyFriendlySupportStrength={score.NearbyFriendlySupportStrength:0.00}, isFrontline={score.IsFrontlineCandidate}, reason='{score.Reason}'");
+                $"Observed CSM army target score: tick={tick}, kingdom='{snapshot.KingdomName}', army='{snapshot.ArmyName}', selectedTarget='{score.TargetName}', score={score.Score:0.00}, distance={score.Distance:0.00}, distanceLimit={score.DistanceLimit:0.00}, targetDefense={score.TargetDefenseStrength:0.00}, estimatedAttackStrength={score.EstimatedAttackStrength:0.00}, strengthRatio={score.StrengthRatio:0.00}, nearbyEnemyArmyStrength={score.NearbyEnemyArmyStrength:0.00}, nearbyFriendlySupportStrength={score.NearbyFriendlySupportStrength:0.00}, isFrontline={score.IsFrontlineCandidate}, extendedFrontline={score.UsesExtendedFrontlineRule}, reason='{score.Reason}'");
         }
 
         private static void LogTargetRejection(int tick, CsmArmySnapshot snapshot, CsmArmyAttackTargetScore score)
@@ -433,7 +433,7 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             CsmLogger.Info(
-                $"Observed CSM army target rejection: tick={tick}, kingdom='{snapshot.KingdomName}', army='{snapshot.ArmyName}', topRejectedTarget='{score.TargetName}', score={score.Score:0.00}, distance={score.Distance:0.00}, targetDefense={score.TargetDefenseStrength:0.00}, estimatedAttackStrength={score.EstimatedAttackStrength:0.00}, strengthRatio={score.StrengthRatio:0.00}, nearbyEnemyArmyStrength={score.NearbyEnemyArmyStrength:0.00}, nearbyFriendlySupportStrength={score.NearbyFriendlySupportStrength:0.00}, isFrontline={score.IsFrontlineCandidate}, reason='{score.Reason}'");
+                $"Observed CSM army target rejection: tick={tick}, kingdom='{snapshot.KingdomName}', army='{snapshot.ArmyName}', topRejectedTarget='{score.TargetName}', score={score.Score:0.00}, distance={score.Distance:0.00}, distanceLimit={score.DistanceLimit:0.00}, targetDefense={score.TargetDefenseStrength:0.00}, estimatedAttackStrength={score.EstimatedAttackStrength:0.00}, strengthRatio={score.StrengthRatio:0.00}, nearbyEnemyArmyStrength={score.NearbyEnemyArmyStrength:0.00}, nearbyFriendlySupportStrength={score.NearbyFriendlySupportStrength:0.00}, isFrontline={score.IsFrontlineCandidate}, extendedFrontline={score.UsesExtendedFrontlineRule}, reason='{score.Reason}'");
         }
 
         private static string GetPartyId(MobileParty party)

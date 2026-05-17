@@ -124,6 +124,8 @@ namespace CalradiaStrategicMind.Strategic
             result.IsAlreadyBesieged = IsAlreadyBesiegedByFriendly(target, kingdom);
             result.IsActiveDefenseTarget = IsActiveDefenseTarget(target, defenseSnapshots);
             result.Score = CalculateScore(result);
+            result.UsesExtendedFrontlineRule = UsesExtendedFrontlineRule(result);
+            result.DistanceLimit = result.UsesExtendedFrontlineRule ? ArmyDirectorSettings.ExtendedFrontlineAttackTargetDistance : ArmyDirectorSettings.MaxAttackTargetDistance;
             result.Reason = BuildReason(result);
             return result;
         }
@@ -132,7 +134,7 @@ namespace CalradiaStrategicMind.Strategic
         {
             return score != null
                 && score.Target != null
-                && score.Distance <= ArmyDirectorSettings.MaxAttackTargetDistance
+                && (score.Distance <= ArmyDirectorSettings.MaxAttackTargetDistance || UsesExtendedFrontlineRule(score))
                 && score.Score >= ArmyDirectorSettings.MinimumAttackTargetScore
                 && score.StrengthRatio >= ArmyDirectorSettings.GoodAttackRequiredStrengthRatio
                 && !score.IsAlreadyAssigned
@@ -202,12 +204,39 @@ namespace CalradiaStrategicMind.Strategic
                 return "Rejected target because attack strength ratio is too low";
             }
 
+            if (UsesExtendedFrontlineRule(score))
+            {
+                return "Selected extended frontline attack target by Army Target Scoring";
+            }
+
             if (score.Distance > ArmyDirectorSettings.MaxAttackTargetDistance)
             {
-                return "Rejected target because distance is too high";
+                return IsAlmostExtendedFrontlineTarget(score)
+                    ? "Rejected target because extended frontline requirements were not met"
+                    : "Rejected target because distance is too high";
             }
 
             return score.IsFrontlineCandidate ? "Selected frontline attack target by Army Target Scoring" : "Selected deep attack target by Army Target Scoring";
+        }
+
+        private static bool UsesExtendedFrontlineRule(CsmArmyAttackTargetScore score)
+        {
+            return score != null
+                && ArmyDirectorSettings.AllowExtendedFrontlineTargets
+                && score.IsFrontlineCandidate
+                && score.Distance > ArmyDirectorSettings.MaxAttackTargetDistance
+                && score.Distance <= ArmyDirectorSettings.ExtendedFrontlineAttackTargetDistance
+                && score.StrengthRatio >= ArmyDirectorSettings.ExtendedFrontlineRequiredStrengthRatio
+                && score.Score >= ArmyDirectorSettings.ExtendedFrontlineMinimumScore;
+        }
+
+        private static bool IsAlmostExtendedFrontlineTarget(CsmArmyAttackTargetScore score)
+        {
+            return score != null
+                && ArmyDirectorSettings.AllowExtendedFrontlineTargets
+                && score.IsFrontlineCandidate
+                && score.Distance > ArmyDirectorSettings.MaxAttackTargetDistance
+                && score.Distance <= ArmyDirectorSettings.ExtendedFrontlineAttackTargetDistance;
         }
 
         private static bool IsAlreadyBesiegedByFriendly(Settlement settlement, Kingdom kingdom)
