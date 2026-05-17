@@ -61,7 +61,7 @@ namespace CalradiaStrategicMind.Strategic
                     continue;
                 }
 
-                if (HasSuitableExistingAttackArmy(armySnapshots, kingdomName))
+                if (HasSuitableExistingAttackArmy(armySnapshots, registry, kingdomName))
                 {
                     reports.Add(CreateReport(observationTick, "none", kingdomName, "AttackSettlement", "none", false, "Skipped", "Suitable existing vanilla army available"));
                     continue;
@@ -400,7 +400,7 @@ namespace CalradiaStrategicMind.Strategic
             return false;
         }
 
-        private static bool HasSuitableExistingAttackArmy(List<CsmArmySnapshot> snapshots, string kingdomName)
+        private static bool HasSuitableExistingAttackArmy(List<CsmArmySnapshot> snapshots, CsmArmyAssignmentRegistry registry, string kingdomName)
         {
             if (snapshots == null)
             {
@@ -412,7 +412,9 @@ namespace CalradiaStrategicMind.Strategic
                 var snapshot = snapshots[index];
                 if (snapshot.KingdomName == kingdomName
                     && snapshot.IsValidForCsm
-                    && snapshot.TotalStrength >= ArmyDirectorSettings.MinimumArmyStrengthForAttack)
+                    && snapshot.TotalStrength >= ArmyDirectorSettings.MinimumArmyStrengthForAttack
+                    && registry.GetActiveAssignmentForArmy(snapshot.ArmyId) == null
+                    && (snapshot.CurrentObjectiveGuess == "IdleOrUnknown" || snapshot.CurrentObjectiveGuess == "MovingToSettlement"))
                 {
                     return true;
                 }
