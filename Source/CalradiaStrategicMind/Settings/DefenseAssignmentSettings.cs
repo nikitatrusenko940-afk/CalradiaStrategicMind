@@ -11,5 +11,7 @@ namespace CalradiaStrategicMind.Settings
         public static int DefenseAssignmentProgressCheckEveryTicks = 2;
         public static float DefenseAssignmentProgressMinimumDistanceDelta = 3f;
         public static float DefenseAssignmentArrivedDistance = 10f;
+        public static int DefenseAssignmentGraceTicks = 4;
+        public static int MinimumTicksBeforeDefenseProgressExpiry = 6;
     }
 }

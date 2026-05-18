@@ -391,7 +391,11 @@ namespace CalradiaStrategicMind.Behaviors
                 }
 
                 var commandReport = _defenseCommandInterface.RequestReinforcement(summary, actionPlan, dryRunDecision, defenseControllerSafetyReport);
-                LogDefenseCommand(commandReport);
+                if (ShouldLogDefenseCommand(commandReport))
+                {
+                    LogDefenseCommand(commandReport);
+                }
+
                 if (DefenseScoreSimulationSettings.EnableDefenseScoreSimulation)
                 {
                     var scoreSimulationReport = _defenseScoreSimulator.Simulate(summary, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerSafetyReport);
@@ -618,6 +622,16 @@ namespace CalradiaStrategicMind.Behaviors
         {
             CsmLogger.Info(
                 $"Observed defense command: tick={_observationTick}, settlement='{report.SettlementName}', owner='{report.OwnerKingdomName}', commandType='{report.CommandType}', candidate='{report.CandidateName}', candidateCategory={report.CandidateCategory}, isAllowed={report.IsAllowed}, wasExecuted={report.WasExecuted}, reason='{report.Reason}'");
+        }
+
+        private static bool ShouldLogDefenseCommand(DefenseCommandReport report)
+        {
+            if (report.WasExecuted)
+            {
+                return true;
+            }
+
+            return report.CommandType != "RequestReinforcement";
         }
 
         private static void LogDirectDefenseCommand(DirectDefenseCommandReport report)
