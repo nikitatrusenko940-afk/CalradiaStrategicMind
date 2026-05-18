@@ -187,9 +187,10 @@ namespace CalradiaStrategicMind.Strategic
             if (state.CurrentState == CsmArmyMissionStatus.Completed
                 || state.CurrentState == CsmArmyMissionStatus.Invalid
                 || state.CurrentState == CsmArmyMissionStatus.Expired
+                || state.CurrentState == CsmArmyMissionStatus.ActiveSiegeRedirectBlocked
                 || state.CurrentState == CsmArmyMissionStatus.ReleasedForRecovery)
             {
-                var status = state.CurrentState.ToString();
+                var status = state.CurrentState == CsmArmyMissionStatus.ActiveSiegeRedirectBlocked ? "Invalid" : state.CurrentState.ToString();
                 registry.Close(assignment, status, state.Reason);
                 _missionTracker.CloseState(assignment, state.CurrentState, state.Reason, observationTick);
                 reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, false, status, state.Reason));

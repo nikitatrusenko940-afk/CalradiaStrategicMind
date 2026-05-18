@@ -9,6 +9,7 @@ namespace CalradiaStrategicMind.Strategic
         BesiegingAssignedTarget,
         AssaultingAssignedTarget,
         OperatingOnAssignedTarget,
+        ActiveSiegeRedirectBlocked,
         ObjectiveMismatch,
         Stalled,
         Unsafe,
