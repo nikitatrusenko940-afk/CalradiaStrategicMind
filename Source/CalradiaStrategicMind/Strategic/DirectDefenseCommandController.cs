@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using CalradiaStrategicMind.Logging;
 using CalradiaStrategicMind.Settings;
 using CalradiaStrategicMind.Utils;
 using TaleWorlds.CampaignSystem;
@@ -11,6 +12,7 @@ namespace CalradiaStrategicMind.Strategic
     public class DirectDefenseCommandController
     {
         private readonly CsmDefenseAssignmentRegistry _assignmentRegistry;
+        private readonly DefenseCandidateScorer _candidateScorer;
         private readonly Dictionary<string, int> _settlementCommandCounts;
         private readonly HashSet<string> _commandedParties;
         private readonly List<CsmDefenseAssignmentReport> _pendingAssignmentReports;
@@ -20,6 +22,7 @@ namespace CalradiaStrategicMind.Strategic
         public DirectDefenseCommandController()
         {
             _assignmentRegistry = new CsmDefenseAssignmentRegistry();
+            _candidateScorer = new DefenseCandidateScorer();
             _settlementCommandCounts = new Dictionary<string, int>();
             _commandedParties = new HashSet<string>();
             _pendingAssignmentReports = new List<CsmDefenseAssignmentReport>();
@@ -239,16 +242,19 @@ namespace CalradiaStrategicMind.Strategic
                 return CreateReport(observationTick, settlementName, activeAssignment.PartyName, false, "Active CSM defense assignment already exists");
             }
 
-            var candidate = FindPartyByName(candidateName);
-            if (candidate == null)
+            DefenseCandidateScore topRejected;
+            var selectedCandidate = _candidateScorer.SelectBest(settlement, snapshot.CandidateReports, candidateName, _assignmentRegistry, armyDirector, out topRejected);
+            LogCandidateScore(observationTick, settlementName, selectedCandidate, topRejected);
+            if (selectedCandidate == null)
             {
-                return CreateReport(observationTick, settlementName, candidateName, false, "Primary candidate not found");
+                return CreateReport(observationTick, settlementName, candidateName, false, topRejected == null ? "Primary candidate not found" : topRejected.Reason);
             }
 
+            var candidate = selectedCandidate.Party;
             var commandParty = GetCommandParty(candidate);
             if (commandParty == null)
             {
-                return CreateReport(observationTick, settlementName, candidateName, false, "Command party not found");
+                return CreateReport(observationTick, settlementName, selectedCandidate.CandidateName, false, "Command party not found");
             }
 
             var commandPartyName = GetPartyName(commandParty);
@@ -263,7 +269,7 @@ namespace CalradiaStrategicMind.Strategic
                 return CreateReport(observationTick, settlementName, commandPartyName, false, "Candidate has active CSM defense assignment");
             }
 
-            var partyBlockReason = GetCommandPartyBlockReason(commandParty, settlement, actionPlan, armyDirector);
+            var partyBlockReason = GetCommandPartyBlockReason(commandParty, settlement, selectedCandidate.Distance, armyDirector);
             if (!string.IsNullOrWhiteSpace(partyBlockReason))
             {
                 return CreateReport(observationTick, settlementName, commandPartyName, false, partyBlockReason);
@@ -343,7 +349,7 @@ namespace CalradiaStrategicMind.Strategic
         private static string GetCommandPartyBlockReason(
             MobileParty party,
             Settlement settlement,
-            DefenseActionPlan actionPlan,
+            float distanceToSettlement,
             CsmArmyDirector armyDirector)
         {
             if (party == null)
@@ -390,7 +396,7 @@ namespace CalradiaStrategicMind.Strategic
                 return "Candidate is army member but not army leader";
             }
 
-            if (actionPlan.PrimaryCandidateDistance > DirectDefenseCommandSettings.MaxUrgentDefenseCommandDistance)
+            if (distanceToSettlement > DirectDefenseCommandSettings.MaxUrgentDefenseCommandDistance)
             {
                 return "Candidate is too far for urgent defense command";
             }
@@ -406,6 +412,21 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             return null;
+        }
+
+        private static void LogCandidateScore(int tick, string settlementName, DefenseCandidateScore selected, DefenseCandidateScore rejected)
+        {
+            if (selected != null)
+            {
+                CsmLogger.Info(
+                    $"Observed defense candidate score: tick={tick}, settlement='{settlementName}', selectedCandidate='{selected.CandidateName}', score={selected.Score:0.00}, distance={selected.Distance:0.00}, strength={selected.Strength:0.00}, category={selected.CandidateCategory}, reason='{selected.Reason}'");
+            }
+
+            if (rejected != null)
+            {
+                CsmLogger.Info(
+                    $"Observed defense candidate rejection: tick={tick}, settlement='{settlementName}', rejectedCandidate='{rejected.CandidateName}', score={rejected.Score:0.00}, distance={rejected.Distance:0.00}, strength={rejected.Strength:0.00}, reason='{rejected.Reason}'");
+            }
         }
 
         private static PartyObservationCategory GetCommandPartyCategory(MobileParty party)
@@ -479,6 +500,13 @@ namespace CalradiaStrategicMind.Strategic
                 return "Assigned settlement not found";
             }
 
+            if (!string.IsNullOrWhiteSpace(assignment.OwnerKingdomName)
+                && !NamesEqual(assignment.OwnerKingdomName, "unknown")
+                && !NamesEqual(GetFactionName(settlement.MapFaction), assignment.OwnerKingdomName))
+            {
+                return "Assigned settlement owner changed";
+            }
+
             if (!party.IsActive)
             {
                 return "Assigned party is inactive";
@@ -523,6 +551,11 @@ namespace CalradiaStrategicMind.Strategic
             MobileParty party,
             Settlement settlement)
         {
+            if (settlement != null && settlement.SiegeEvent == null)
+            {
+                return "Settlement no longer under siege";
+            }
+
             if (snapshot.CoverageReport.IsDefenseEnough)
             {
                 return "Settlement defense coverage is enough";
@@ -552,6 +585,13 @@ namespace CalradiaStrategicMind.Strategic
         private static string GetProgressExpiredReason(CsmDefenseAssignment assignment, MobileParty party, Settlement settlement, int observationTick)
         {
             if (assignment == null || party == null || settlement == null)
+            {
+                return null;
+            }
+
+            var assignmentAge = observationTick - assignment.CommandStartTick;
+            if (assignmentAge < DefenseAssignmentSettings.DefenseAssignmentGraceTicks
+                || assignmentAge < DefenseAssignmentSettings.MinimumTicksBeforeDefenseProgressExpiry)
             {
                 return null;
             }
@@ -869,6 +909,11 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             return settlement.Name.ToString();
+        }
+
+        private static string GetFactionName(IFaction faction)
+        {
+            return faction?.Name == null ? "unknown" : faction.Name.ToString();
         }
 
         private static bool NamesEqual(string left, string right)
