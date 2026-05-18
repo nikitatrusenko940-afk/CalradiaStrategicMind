@@ -26,7 +26,7 @@ namespace CalradiaStrategicMind.Strategic
             DryRunDefenseDecisionStabilityReport dryRunStabilityReport,
             DefenseControllerDecision controllerDecision)
         {
-            if (!DefenseControllerSettings.EnableRealDefenseController)
+            if (!DefenseControllerSettings.EnableRealDefenseController || !DefenseActionThresholdSettings.EnableRealDefenseController)
             {
                 return CreateReport(summary, actionPlan, dryRunDecision, dryRunStabilityReport, controllerDecision, false, "Real defense controller disabled");
             }
@@ -41,9 +41,21 @@ namespace CalradiaStrategicMind.Strategic
                 return CreateReport(summary, actionPlan, dryRunDecision, dryRunStabilityReport, controllerDecision, false, "Dry-run does not request action");
             }
 
-            if (!dryRunStabilityReport.HasStableWouldActSignal)
+            if (DefenseActionThresholdSettings.RequireStableDefenseSignal
+                && (!IsUrgentDefenseAction(dryRunStabilityReport.StableAction)
+                    || dryRunStabilityReport.ConsecutiveSameActionCount < DefenseActionThresholdSettings.RequiredStableDefenseTicks))
             {
-                return CreateReport(summary, actionPlan, dryRunDecision, dryRunStabilityReport, controllerDecision, false, "No stable dry-run would-act signal");
+                return CreateReport(summary, actionPlan, dryRunDecision, dryRunStabilityReport, controllerDecision, false, "No stable urgent defense dry-run signal");
+            }
+
+            if (!IsUrgentDefenseAction(dryRunDecision.Action))
+            {
+                return CreateReport(summary, actionPlan, dryRunDecision, dryRunStabilityReport, controllerDecision, false, "Dry-run action is not urgent defense");
+            }
+
+            if (!IsUrgentDefenseAction(controllerDecision.Action))
+            {
+                return CreateReport(summary, actionPlan, dryRunDecision, dryRunStabilityReport, controllerDecision, false, "Controller action is not urgent defense");
             }
 
             if (IsNonExecutableDryRunAction(dryRunDecision.Action))
@@ -57,7 +69,7 @@ namespace CalradiaStrategicMind.Strategic
                 return CreateReport(summary, actionPlan, dryRunDecision, dryRunStabilityReport, controllerDecision, false, "No primary candidate");
             }
 
-            return CreateReport(summary, actionPlan, dryRunDecision, dryRunStabilityReport, controllerDecision, true, "Safety guard would allow future execution");
+            return CreateReport(summary, actionPlan, dryRunDecision, dryRunStabilityReport, controllerDecision, true, "Safety guard allows urgent defense execution");
         }
 
         private static bool IsNonExecutableDryRunAction(string action)
@@ -65,6 +77,20 @@ namespace CalradiaStrategicMind.Strategic
             return action == "Monitor"
                 || action == "Ignore"
                 || action == "Wait";
+        }
+
+        private static bool IsUrgentDefenseAction(string action)
+        {
+            return NamesEqual(action, "UrgentDefense")
+                || NamesEqual(action, "RequestUrgentDefense");
+        }
+
+        private static bool NamesEqual(string left, string right)
+        {
+            return string.Equals(
+                left == null ? string.Empty : left.Trim(),
+                right == null ? string.Empty : right.Trim(),
+                StringComparison.OrdinalIgnoreCase);
         }
 
         private static DefenseControllerSafetyReport CreateReport(

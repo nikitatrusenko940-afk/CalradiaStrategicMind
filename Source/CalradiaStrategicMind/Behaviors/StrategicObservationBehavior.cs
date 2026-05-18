@@ -374,12 +374,13 @@ namespace CalradiaStrategicMind.Behaviors
                     LogDefenseAssignmentReports(assignmentReports);
                 }
 
-                if (DirectDefenseCommandSettings.EnableDirectDefenseCommand)
+                if (DirectDefenseCommandSettings.EnableDirectDefenseCommand && IsUrgentDefenseAction(actionPlan.RecommendedAction))
                 {
-                    var directCommandReport = _directDefenseCommandController.Execute(snapshot, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerSafetyReport, _observationTick);
+                    var directCommandReport = _directDefenseCommandController.Execute(snapshot, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerSafetyReport, _armyDirector, _observationTick);
                     if (DirectDefenseCommandSettings.EnableDirectDefenseCommandLogs)
                     {
                         LogDirectDefenseCommand(directCommandReport);
+                        LogDefenseCommand(directCommandReport.ToDefenseCommandReport());
                     }
 
                     if (DefenseAssignmentSettings.EnableDefenseAssignments)
@@ -438,6 +439,12 @@ namespace CalradiaStrategicMind.Behaviors
                 || report.Status == "Invalid"
                 || report.Status == "Expired"
                 || report.Status == "Skipped";
+        }
+
+        private static bool IsUrgentDefenseAction(string action)
+        {
+            return string.Equals(action, "UrgentDefense", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(action, "RequestUrgentDefense", System.StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool ShouldObserveSettlement(Settlement settlement)
@@ -630,7 +637,7 @@ namespace CalradiaStrategicMind.Behaviors
             {
                 var report = reports[index];
                 CsmLogger.Info(
-                    $"Observed CSM defense assignment: tick={report.ObservationTick}, settlement='{report.SettlementName}', party='{report.PartyName}', status='{report.Status}', commandApplied={report.CommandApplied}, reason='{report.Reason}'");
+                    $"Observed defense assignment: tick={report.ObservationTick}, settlement='{report.SettlementName}', candidate='{report.PartyName}', status='{report.Status}', reason='{report.Reason}'");
             }
         }
 

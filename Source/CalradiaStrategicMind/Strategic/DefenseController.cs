@@ -23,12 +23,17 @@ namespace CalradiaStrategicMind.Strategic
             DryRunDefenseDecision dryRunDecision,
             DryRunDefenseDecisionStabilityReport dryRunStabilityReport)
         {
-            if (!DefenseControllerSettings.EnableRealDefenseController)
+            if (!DefenseControllerSettings.EnableRealDefenseController || !DefenseActionThresholdSettings.EnableRealDefenseController)
             {
                 return CreateDecision(summary, actionPlan, dryRunDecision, false, false, "Disabled", "Real defense controller disabled");
             }
 
-            return CreateDecision(summary, actionPlan, dryRunDecision, true, false, "SafetyBlocked", "Real defense controller scaffold only");
+            if (!IsUrgentDefenseAction(actionPlan.RecommendedAction))
+            {
+                return CreateDecision(summary, actionPlan, dryRunDecision, true, false, actionPlan.RecommendedAction, "Only urgent defense is executable in v1");
+            }
+
+            return CreateDecision(summary, actionPlan, dryRunDecision, true, true, "UrgentDefense", "Urgent defense controller activation candidate");
         }
 
         private static DefenseControllerDecision CreateDecision(
@@ -50,6 +55,11 @@ namespace CalradiaStrategicMind.Strategic
                 actionPlan.PrimaryCandidateName,
                 actionPlan.PrimaryCandidateCategory,
                 reason);
+        }
+
+        private static bool IsUrgentDefenseAction(string action)
+        {
+            return action == "UrgentDefense" || action == "RequestUrgentDefense";
         }
     }
 }
