@@ -12,12 +12,14 @@ namespace CalradiaStrategicMind.Strategic
         private readonly CsmArmyAttackTargetScorer _targetScorer;
         private readonly CsmArmyObjectiveReader _objectiveReader;
         private readonly CsmBadSiegeEvaluator _badSiegeEvaluator;
+        private readonly CsmArmyMissionTracker _missionTracker;
 
         public CsmArmyOperationalDirector()
         {
             _targetScorer = new CsmArmyAttackTargetScorer();
             _objectiveReader = new CsmArmyObjectiveReader();
             _badSiegeEvaluator = new CsmBadSiegeEvaluator(_targetScorer);
+            _missionTracker = new CsmArmyMissionTracker();
         }
 
         public List<CsmArmyDirectorReport> Execute(
@@ -40,7 +42,7 @@ namespace CalradiaStrategicMind.Strategic
                 var assignment = registry.GetActiveAssignmentForArmy(snapshot.ArmyId);
                 if (assignment != null)
                 {
-                    ProcessAssignment(snapshot, objective, assignment, registry, observationTick, reports);
+                    ProcessAssignment(snapshot, objective, assignment, registry, defenseSnapshots, observationTick, reports);
                     continue;
                 }
 
@@ -75,19 +77,28 @@ namespace CalradiaStrategicMind.Strategic
             return reports;
         }
 
-        private static void ProcessAssignment(
+        private void ProcessAssignment(
             CsmArmySnapshot snapshot,
             CsmArmyObjectiveSnapshot objective,
             CsmArmyAssignment assignment,
             CsmArmyAssignmentRegistry registry,
+            List<DefenseEvaluationSnapshot> defenseSnapshots,
             int observationTick,
             List<CsmArmyDirectorReport> reports)
         {
+            var target = FindSettlementByIdOrName(assignment.TargetSettlementId, assignment.TargetSettlementName);
+            var mission = _missionTracker.Evaluate(snapshot, objective, assignment, target, _badSiegeEvaluator, _targetScorer, defenseSnapshots, registry, observationTick);
+            if (mission != null && mission.Handled && TryHandleMissionState(snapshot, objective, assignment, registry, defenseSnapshots, observationTick, reports, mission.State, target))
+            {
+                return;
+            }
+
             var invalidReason = GetInvalidAssignmentReason(snapshot, objective, assignment, observationTick);
             if (!string.IsNullOrWhiteSpace(invalidReason))
             {
                 var status = GetClosedStatus(assignment, observationTick, invalidReason);
                 registry.Close(assignment, status, invalidReason);
+                _missionTracker.CloseState(assignment, ToMissionStatus(status), invalidReason, observationTick);
                 reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, false, status, invalidReason));
                 return;
             }
@@ -98,6 +109,15 @@ namespace CalradiaStrategicMind.Strategic
                 if (IsAttackObjective(assignment.ObjectiveType))
                 {
                     var syncTarget = FindSettlementByIdOrName(assignment.TargetSettlementId, assignment.TargetSettlementName);
+                    if (_missionTracker.HasExceededSyncAttempts(assignment))
+                    {
+                        registry.Close(assignment, "Invalid", "Mission invalid because objective sync attempts were exceeded");
+                        _missionTracker.CloseState(assignment, CsmArmyMissionStatus.Invalid, "Mission invalid because objective sync attempts were exceeded", observationTick);
+                        reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, false, "Invalid", "Mission invalid because objective sync attempts were exceeded"));
+                        return;
+                    }
+
+                    _missionTracker.IncrementSyncAttempt(assignment);
                     if (TrySyncArmyAttackObjective(snapshot, assignment, syncTarget))
                     {
                         registry.MarkReasserted(assignment, observationTick, "Reasserted because army displayed objective mismatched CSM assignment target");
@@ -125,10 +145,11 @@ namespace CalradiaStrategicMind.Strategic
                 return;
             }
 
-            var target = FindSettlementByIdOrName(assignment.TargetSettlementId, assignment.TargetSettlementName);
+            target = FindSettlementByIdOrName(assignment.TargetSettlementId, assignment.TargetSettlementName);
             if (target == null)
             {
                 registry.Close(assignment, "Invalid", "Army assignment target not found");
+                _missionTracker.CloseState(assignment, CsmArmyMissionStatus.Invalid, "Army assignment target not found", observationTick);
                 reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, false, "Invalid", "Army assignment target not found"));
                 return;
             }
@@ -145,6 +166,217 @@ namespace CalradiaStrategicMind.Strategic
                 : "CSM army assignment reasserted";
             registry.MarkReasserted(assignment, observationTick, reason);
             reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, true, "Reasserted", reason));
+        }
+
+        private bool TryHandleMissionState(
+            CsmArmySnapshot snapshot,
+            CsmArmyObjectiveSnapshot objective,
+            CsmArmyAssignment assignment,
+            CsmArmyAssignmentRegistry registry,
+            List<DefenseEvaluationSnapshot> defenseSnapshots,
+            int observationTick,
+            List<CsmArmyDirectorReport> reports,
+            CsmArmyMissionState state,
+            Settlement target)
+        {
+            if (state == null)
+            {
+                return false;
+            }
+
+            if (state.CurrentState == CsmArmyMissionStatus.Completed
+                || state.CurrentState == CsmArmyMissionStatus.Invalid
+                || state.CurrentState == CsmArmyMissionStatus.Expired
+                || state.CurrentState == CsmArmyMissionStatus.ReleasedForRecovery)
+            {
+                var status = state.CurrentState.ToString();
+                registry.Close(assignment, status, state.Reason);
+                _missionTracker.CloseState(assignment, state.CurrentState, state.Reason, observationTick);
+                reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, false, status, state.Reason));
+                return true;
+            }
+
+            if (state.CurrentState == CsmArmyMissionStatus.BesiegingAssignedTarget
+                || state.CurrentState == CsmArmyMissionStatus.AssaultingAssignedTarget
+                || state.CurrentState == CsmArmyMissionStatus.OperatingOnAssignedTarget)
+            {
+                reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, false, "Skipped", state.Reason));
+                return true;
+            }
+
+            if (state.CurrentState == CsmArmyMissionStatus.ObjectiveMismatch)
+            {
+                return TryHandleMissionObjectiveMismatch(snapshot, objective, assignment, registry, observationTick, reports, target);
+            }
+
+            if (state.CurrentState == CsmArmyMissionStatus.Stalled)
+            {
+                return TryHandleStalledMission(snapshot, assignment, registry, observationTick, reports, target);
+            }
+
+            if (state.CurrentState == CsmArmyMissionStatus.Unsafe)
+            {
+                return TryHandleUnsafeMission(snapshot, objective, assignment, defenseSnapshots, registry, observationTick, reports);
+            }
+
+            return false;
+        }
+
+        private bool TryHandleMissionObjectiveMismatch(
+            CsmArmySnapshot snapshot,
+            CsmArmyObjectiveSnapshot objective,
+            CsmArmyAssignment assignment,
+            CsmArmyAssignmentRegistry registry,
+            int observationTick,
+            List<CsmArmyDirectorReport> reports,
+            Settlement target)
+        {
+            LogObjectiveSync(observationTick, snapshot, assignment, objective, false, "Mismatch", "Army displayed objective differs from CSM assignment target");
+            if (!IsAttackObjective(assignment.ObjectiveType))
+            {
+                return true;
+            }
+
+            if (_missionTracker.HasExceededSyncAttempts(assignment))
+            {
+                registry.Close(assignment, "Invalid", "Mission invalid because objective sync attempts were exceeded");
+                _missionTracker.CloseState(assignment, CsmArmyMissionStatus.Invalid, "Mission invalid because objective sync attempts were exceeded", observationTick);
+                reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, false, "Invalid", "Mission invalid because objective sync attempts were exceeded"));
+                return true;
+            }
+
+            _missionTracker.IncrementSyncAttempt(assignment);
+            if (TrySyncArmyAttackObjective(snapshot, assignment, target))
+            {
+                registry.MarkReasserted(assignment, observationTick, "Reasserted because army displayed objective mismatched CSM assignment target");
+                LogObjectiveSync(observationTick, snapshot, assignment, objective, true, "Synced", "Reasserted because army displayed objective mismatched CSM assignment target");
+                reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, true, "Reasserted", "Reasserted because army displayed objective mismatched CSM assignment target"));
+                return true;
+            }
+
+            LogObjectiveSync(observationTick, snapshot, assignment, objective, false, "Skipped", "No safe public army-level objective sync API found; leader party command reasserted only");
+            reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, false, "Skipped", "No safe public army-level objective sync API found; leader party command reasserted only"));
+            return true;
+        }
+
+        private bool TryHandleStalledMission(
+            CsmArmySnapshot snapshot,
+            CsmArmyAssignment assignment,
+            CsmArmyAssignmentRegistry registry,
+            int observationTick,
+            List<CsmArmyDirectorReport> reports,
+            Settlement target)
+        {
+            if (_missionTracker.HasExceededRepathAttempts(assignment))
+            {
+                registry.Close(assignment, "Expired", "Mission expired because army did not make progress toward assigned target");
+                _missionTracker.CloseState(assignment, CsmArmyMissionStatus.Expired, "Mission expired because army did not make progress toward assigned target", observationTick);
+                reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, false, "Expired", "Mission expired because army did not make progress toward assigned target"));
+                return true;
+            }
+
+            if (!IsAttackObjective(assignment.ObjectiveType) || !CanApplyAttackCommand(snapshot, assignment) || target == null)
+            {
+                reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, false, "Skipped", "Mission stalled but attack command could not be safely reasserted"));
+                return true;
+            }
+
+            _missionTracker.IncrementRepathAttempt(assignment);
+            if (!TrySyncArmyAttackObjective(snapshot, assignment, target))
+            {
+                reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, false, "Skipped", "Mission stalled but attack objective sync failed"));
+                return true;
+            }
+
+            registry.MarkReasserted(assignment, observationTick, "Mission stalled; reasserted assigned attack target");
+            reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, true, "Reasserted", "Mission stalled; reasserted assigned attack target"));
+            return true;
+        }
+
+        private bool TryHandleUnsafeMission(
+            CsmArmySnapshot snapshot,
+            CsmArmyObjectiveSnapshot objective,
+            CsmArmyAssignment assignment,
+            List<DefenseEvaluationSnapshot> defenseSnapshots,
+            CsmArmyAssignmentRegistry registry,
+            int observationTick,
+            List<CsmArmyDirectorReport> reports)
+        {
+            if (!ArmyDirectorSettings.AllowBadSiegeRedirect)
+            {
+                return true;
+            }
+
+            if (_missionTracker.HasExceededRedirects(assignment))
+            {
+                registry.Close(assignment, "ReleasedForRecovery", "Army released because repeated redirects failed to stabilize mission");
+                _missionTracker.CloseState(assignment, CsmArmyMissionStatus.ReleasedForRecovery, "Army released because repeated redirects failed to stabilize mission", observationTick);
+                reports.Add(CreateReport(observationTick, snapshot, "ReleaseForRecovery", "none", false, "ReleasedForRecovery", "Army released because repeated redirects failed to stabilize mission"));
+                return true;
+            }
+
+            if (_missionTracker.IsRedirectCooldownActive(assignment, observationTick))
+            {
+                var currentTarget = FindSettlementByIdOrName(assignment.TargetSettlementId, assignment.TargetSettlementName);
+                if (TrySyncArmyAttackObjective(snapshot, assignment, currentTarget))
+                {
+                    registry.MarkReasserted(assignment, observationTick, "Redirect suppressed by cooldown; reasserted current assignment target");
+                    reports.Add(CreateReport(observationTick, snapshot, "RedirectFromBadSiege", assignment.TargetSettlementName, true, "Reasserted", "Redirect suppressed by cooldown; reasserted current assignment target"));
+                    return true;
+                }
+
+                reports.Add(CreateReport(observationTick, snapshot, "RedirectFromBadSiege", assignment.TargetSettlementName, false, "Skipped", "Redirect suppressed by cooldown but current assignment target could not be reasserted"));
+                return true;
+            }
+
+            var badSiege = _badSiegeEvaluator.Evaluate(snapshot, objective, defenseSnapshots, registry);
+            LogBadSiegeEvaluation(observationTick, snapshot, badSiege);
+            var score = _targetScorer.FindBestTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry);
+            if (score == null)
+            {
+                var rejected = _targetScorer.FindBestRejectedTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry);
+                LogTargetRejection(observationTick, snapshot, rejected);
+                registry.Close(assignment, "ReleasedForRecovery", "Bad siege had no safe replacement target; released army from CSM control");
+                _missionTracker.CloseState(assignment, CsmArmyMissionStatus.ReleasedForRecovery, "Bad siege had no safe replacement target; released army from CSM control", observationTick);
+                reports.Add(CreateReport(observationTick, snapshot, "ReleaseForRecovery", "none", false, "ReleasedForRecovery", "Bad siege had no safe replacement target; released army from CSM control"));
+                return true;
+            }
+
+            LogTargetScore(observationTick, snapshot, score);
+            var target = score.Target;
+            var reason = "Redirected bad siege to better scored attack target: " + badSiege.Reason;
+            var inheritedRedirectCount = _missionTracker.GetRedirectCount(assignment);
+            var previousTargetName = assignment.TargetSettlementName;
+            registry.Close(assignment, "ReleasedForRecovery", reason);
+            _missionTracker.CloseState(assignment, CsmArmyMissionStatus.ReleasedForRecovery, reason, observationTick);
+
+            CsmArmyAssignment newAssignment;
+            if (!registry.TryCreate(snapshot.ArmyId, snapshot.ArmyName, GetPartyId(snapshot.LeaderParty), GetPartyName(snapshot.LeaderParty), snapshot.KingdomName, "RedirectFromBadSiege", GetSettlementId(target), GetSettlementName(target), observationTick, reason, "VanillaArmy", out newAssignment))
+            {
+                reports.Add(CreateReport(observationTick, snapshot, "RedirectFromBadSiege", GetSettlementName(target), false, "Skipped", "Active CSM army assignment already exists"));
+                return true;
+            }
+
+            _missionTracker.MarkRedirected(newAssignment, observationTick, previousTargetName, inheritedRedirectCount);
+
+            if (!CanApplyAttackCommand(snapshot, newAssignment))
+            {
+                registry.Close(newAssignment, "Invalid", "Attack command blocked because party is not a vanilla army leader");
+                _missionTracker.CloseState(newAssignment, CsmArmyMissionStatus.Invalid, "Attack command blocked because party is not a vanilla army leader", observationTick);
+                reports.Add(CreateReport(observationTick, snapshot, "AttackSettlement", GetSettlementName(target), false, "Skipped", "Attack command blocked because party is not a vanilla army leader"));
+                return true;
+            }
+
+            if (!TrySyncArmyAttackObjective(snapshot, newAssignment, target))
+            {
+                registry.Close(newAssignment, "Invalid", "Redirect command failed because attack objective sync failed");
+                _missionTracker.CloseState(newAssignment, CsmArmyMissionStatus.Invalid, "Redirect command failed because attack objective sync failed", observationTick);
+                reports.Add(CreateReport(observationTick, snapshot, "AttackSettlement", GetSettlementName(target), false, "Skipped", "Redirect command failed because attack objective sync failed"));
+                return true;
+            }
+
+            reports.Add(CreateReport(observationTick, snapshot, newAssignment.ObjectiveType, GetSettlementName(target), true, newAssignment.Status, reason));
+            return true;
         }
 
         private static bool TryReleaseWeakArmy(CsmArmySnapshot snapshot, CsmArmyAssignmentRegistry registry, int tick, List<CsmArmyDirectorReport> reports)
@@ -215,7 +447,7 @@ namespace CalradiaStrategicMind.Strategic
             return false;
         }
 
-        private static bool TryRedirectBadSiege(
+        private bool TryRedirectBadSiege(
             CsmArmySnapshot snapshot,
             CsmArmyObjectiveSnapshot objective,
             List<DefenseEvaluationSnapshot> defenseSnapshots,
@@ -262,14 +494,24 @@ namespace CalradiaStrategicMind.Strategic
                 return true;
             }
 
+            _missionTracker.MarkRedirected(assignment, tick, badSiege.CurrentTargetName, 0);
+
             if (!CanApplyAttackCommand(snapshot, assignment))
             {
                 registry.Close(assignment, "Invalid", "Attack command blocked because party is not a vanilla army leader");
+                _missionTracker.CloseState(assignment, CsmArmyMissionStatus.Invalid, "Attack command blocked because party is not a vanilla army leader", tick);
                 reports.Add(CreateReport(tick, snapshot, "AttackSettlement", GetSettlementName(target), false, "Skipped", "Attack command blocked because party is not a vanilla army leader"));
                 return true;
             }
 
-            snapshot.LeaderParty.SetMoveBesiegeSettlement(target, snapshot.LeaderParty.NavigationCapability);
+            if (!TrySyncArmyAttackObjective(snapshot, assignment, target))
+            {
+                registry.Close(assignment, "Invalid", "Redirect command failed because attack objective sync failed");
+                _missionTracker.CloseState(assignment, CsmArmyMissionStatus.Invalid, "Redirect command failed because attack objective sync failed", tick);
+                reports.Add(CreateReport(tick, snapshot, "AttackSettlement", GetSettlementName(target), false, "Skipped", "Redirect command failed because attack objective sync failed"));
+                return true;
+            }
+
             reports.Add(CreateReport(tick, snapshot, assignment.ObjectiveType, GetSettlementName(target), true, assignment.Status, reason));
             return true;
         }
@@ -369,6 +611,26 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             return "Invalid";
+        }
+
+        private static CsmArmyMissionStatus ToMissionStatus(string status)
+        {
+            if (status == "Completed")
+            {
+                return CsmArmyMissionStatus.Completed;
+            }
+
+            if (status == "Expired")
+            {
+                return CsmArmyMissionStatus.Expired;
+            }
+
+            if (status == "ReleasedForRecovery")
+            {
+                return CsmArmyMissionStatus.ReleasedForRecovery;
+            }
+
+            return CsmArmyMissionStatus.Invalid;
         }
 
         private static bool HasAssignmentObjectiveMismatch(CsmArmyObjectiveSnapshot objective, CsmArmyAssignment assignment)
