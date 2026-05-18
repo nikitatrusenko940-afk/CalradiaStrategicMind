@@ -234,6 +234,12 @@ namespace CalradiaStrategicMind.Strategic
                 }
             }
 
+            if (IsActiveSiegeRedirectBlocked(objective, assignment))
+            {
+                state.Reason = "Redirect blocked because army is already besieging another settlement";
+                return CsmArmyMissionStatus.ActiveSiegeRedirectBlocked;
+            }
+
             if (HasObjectiveMismatch(objective, assignment))
             {
                 state.Reason = "Army displayed objective differs from CSM assignment target";
@@ -343,9 +349,19 @@ namespace CalradiaStrategicMind.Strategic
                 || status == CsmArmyMissionStatus.BesiegingAssignedTarget
                 || status == CsmArmyMissionStatus.AssaultingAssignedTarget
                 || status == CsmArmyMissionStatus.OperatingOnAssignedTarget
+                || status == CsmArmyMissionStatus.ActiveSiegeRedirectBlocked
                 || status == CsmArmyMissionStatus.ObjectiveMismatch
                 || status == CsmArmyMissionStatus.Stalled
                 || status == CsmArmyMissionStatus.Unsafe;
+        }
+
+        private static bool IsActiveSiegeRedirectBlocked(CsmArmyObjectiveSnapshot objective, CsmArmyAssignment assignment)
+        {
+            return objective != null
+                && assignment != null
+                && IsAttackObjective(assignment.ObjectiveType)
+                && objective.LeaderBesiegedSettlement != null
+                && !IsSameTarget(objective.LeaderBesiegedSettlement, assignment.TargetSettlementId, assignment.TargetSettlementName);
         }
 
         private static bool HasObjectiveMismatch(CsmArmyObjectiveSnapshot objective, CsmArmyAssignment assignment)
