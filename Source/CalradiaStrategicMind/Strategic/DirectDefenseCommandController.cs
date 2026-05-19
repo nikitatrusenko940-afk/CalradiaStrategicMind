@@ -44,6 +44,16 @@ namespace CalradiaStrategicMind.Strategic
             return reports;
         }
 
+        public CsmDefenseAssignmentRegistry AssignmentRegistry
+        {
+            get { return _assignmentRegistry; }
+        }
+
+        public int CountActiveAssignments()
+        {
+            return _assignmentRegistry.CountActiveAssignments();
+        }
+
         public DirectDefenseCommandReport Execute(
             DefenseEvaluationSnapshot snapshot,
             DefenseActionPlan actionPlan,
@@ -243,7 +253,7 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             DefenseCandidateScore topRejected;
-            var selectedCandidate = _candidateScorer.SelectBest(settlement, snapshot.CandidateReports, candidateName, _assignmentRegistry, armyDirector, out topRejected);
+            var selectedCandidate = _candidateScorer.SelectBest(settlement, snapshot.CandidateReports, candidateName, _assignmentRegistry, armyDirector == null ? null : armyDirector.AssignmentRegistry, out topRejected);
             LogCandidateScore(observationTick, settlementName, selectedCandidate, topRejected);
             if (selectedCandidate == null)
             {
@@ -264,12 +274,7 @@ namespace CalradiaStrategicMind.Strategic
                 return CreateReport(observationTick, settlementName, commandPartyName, false, "Party already received direct command today");
             }
 
-            if (_assignmentRegistry.HasActiveAssignmentForParty(GetPartyId(commandParty), commandPartyName))
-            {
-                return CreateReport(observationTick, settlementName, commandPartyName, false, "Candidate has active CSM defense assignment");
-            }
-
-            var partyBlockReason = GetCommandPartyBlockReason(commandParty, settlement, selectedCandidate.Distance, armyDirector);
+            var partyBlockReason = GetCommandPartyBlockReason(commandParty, settlement, selectedCandidate.Distance, _assignmentRegistry, armyDirector == null ? null : armyDirector.AssignmentRegistry);
             if (!string.IsNullOrWhiteSpace(partyBlockReason))
             {
                 return CreateReport(observationTick, settlementName, commandPartyName, false, partyBlockReason);
@@ -350,26 +355,18 @@ namespace CalradiaStrategicMind.Strategic
             MobileParty party,
             Settlement settlement,
             float distanceToSettlement,
-            CsmArmyDirector armyDirector)
+            CsmDefenseAssignmentRegistry defenseAssignments,
+            CsmArmyAssignmentRegistry armyAssignments)
         {
             if (party == null)
             {
                 return "Command party not found";
             }
 
-            if (party.IsMainParty)
+            var conflict = new CsmAssignmentConflictChecker(armyAssignments, defenseAssignments).CheckPartyForNewDefenseCommand(party, settlement);
+            if (conflict.IsBlocked)
             {
-                return "Candidate is player party";
-            }
-
-            if (party.MapEvent != null)
-            {
-                return "Candidate is in battle";
-            }
-
-            if (party.BesiegedSettlement != null && party.BesiegedSettlement.MapFaction != party.MapFaction)
-            {
-                return "Candidate is already besieging enemy target";
+                return conflict.Reason;
             }
 
             if (settlement == null || settlement.MapFaction == null || party.MapFaction != settlement.MapFaction)
@@ -399,11 +396,6 @@ namespace CalradiaStrategicMind.Strategic
             if (distanceToSettlement > DirectDefenseCommandSettings.MaxUrgentDefenseCommandDistance)
             {
                 return "Candidate is too far for urgent defense command";
-            }
-
-            if (armyDirector != null && armyDirector.HasActiveAssignmentForParty(party))
-            {
-                return "Candidate blocked because it has active CSM army assignment";
             }
 
             if (!CanCommandParty(party))

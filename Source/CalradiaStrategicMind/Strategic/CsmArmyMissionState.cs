@@ -13,6 +13,7 @@ namespace CalradiaStrategicMind.Strategic
         ObjectiveMismatch,
         Stalled,
         Unsafe,
+        WaitingAfterCompletedMission,
         Completed,
         Invalid,
         Expired,
