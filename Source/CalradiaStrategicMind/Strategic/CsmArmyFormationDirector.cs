@@ -25,6 +25,8 @@ namespace CalradiaStrategicMind.Strategic
             List<DefenseEvaluationSnapshot> defenseSnapshots,
             CsmArmyAssignmentRegistry registry,
             CsmDefenseAssignmentRegistry defenseRegistry,
+            CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies,
+            CsmArmyLifecycleReport lifecycle,
             int observationTick)
         {
             var reports = new List<CsmArmyDirectorReport>();
@@ -69,7 +71,7 @@ namespace CalradiaStrategicMind.Strategic
                 }
 
                 OffensiveOpportunity opportunity;
-                if (!TryFindOpportunity(kingdom, defenseSnapshots, registry, defenseRegistry, observationTick, kingdomName, out opportunity))
+                if (!TryFindOpportunity(kingdom, defenseSnapshots, registry, defenseRegistry, recentlyReleasedArmies, lifecycle, observationTick, kingdomName, out opportunity))
                 {
                     reports.Add(CreateReport(observationTick, "none", kingdomName, "AttackSettlement", "none", false, "Skipped", "No attack target passed Army Target Scoring"));
                     continue;
@@ -123,10 +125,10 @@ namespace CalradiaStrategicMind.Strategic
             return reports;
         }
 
-        private bool TryFindOpportunity(Kingdom kingdom, List<DefenseEvaluationSnapshot> defenseSnapshots, CsmArmyAssignmentRegistry registry, CsmDefenseAssignmentRegistry defenseRegistry, int tick, string kingdomName, out OffensiveOpportunity opportunity)
+        private bool TryFindOpportunity(Kingdom kingdom, List<DefenseEvaluationSnapshot> defenseSnapshots, CsmArmyAssignmentRegistry registry, CsmDefenseAssignmentRegistry defenseRegistry, CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies, CsmArmyLifecycleReport lifecycle, int tick, string kingdomName, out OffensiveOpportunity opportunity)
         {
             opportunity = default(OffensiveOpportunity);
-            var provisionalLeader = FindBestFormationLeader(kingdom);
+            var provisionalLeader = FindBestFormationLeader(kingdom, recentlyReleasedArmies, lifecycle, tick);
             if (provisionalLeader == null)
             {
                 return false;
@@ -149,7 +151,7 @@ namespace CalradiaStrategicMind.Strategic
                 return false;
             }
 
-            var parties = FindFormationParties(kingdom, target, registry, defenseRegistry);
+            var parties = FindFormationParties(kingdom, target, registry, defenseRegistry, recentlyReleasedArmies, lifecycle, tick);
             if (parties.Count < ArmyDirectorSettings.MinOffensiveFormationParties)
             {
                 return false;
@@ -183,7 +185,7 @@ namespace CalradiaStrategicMind.Strategic
             return true;
         }
 
-        private MobileParty FindBestFormationLeader(Kingdom kingdom)
+        private MobileParty FindBestFormationLeader(Kingdom kingdom, CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies, CsmArmyLifecycleReport lifecycle, int tick)
         {
             var parties = kingdom?.WarPartyComponents;
             MobileParty best = null;
@@ -197,6 +199,11 @@ namespace CalradiaStrategicMind.Strategic
             {
                 var party = parties[index].MobileParty;
                 if (!IsFreeLordParty(party))
+                {
+                    continue;
+                }
+
+                if (IsRecentlyReleasedLeader(party, recentlyReleasedArmies, lifecycle, tick))
                 {
                     continue;
                 }
@@ -322,7 +329,7 @@ namespace CalradiaStrategicMind.Strategic
             return null;
         }
 
-        private List<MobileParty> FindFormationParties(Kingdom kingdom, Settlement target, CsmArmyAssignmentRegistry registry, CsmDefenseAssignmentRegistry defenseRegistry)
+        private List<MobileParty> FindFormationParties(Kingdom kingdom, Settlement target, CsmArmyAssignmentRegistry registry, CsmDefenseAssignmentRegistry defenseRegistry, CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies, CsmArmyLifecycleReport lifecycle, int tick)
         {
             var parties = new List<MobileParty>();
             if (kingdom == null || kingdom.WarPartyComponents == null || target == null)
@@ -334,6 +341,11 @@ namespace CalradiaStrategicMind.Strategic
             {
                 var party = kingdom.WarPartyComponents[index].MobileParty;
                 if (!IsFreeLordParty(party))
+                {
+                    continue;
+                }
+
+                if (IsRecentlyReleasedLeader(party, recentlyReleasedArmies, lifecycle, tick))
                 {
                     continue;
                 }
@@ -392,6 +404,22 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             return leaderParty.Army != null && registry.HasActiveAssignmentForArmy(GetArmyId(leaderParty.Army));
+        }
+
+        private static bool IsRecentlyReleasedLeader(MobileParty party, CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies, CsmArmyLifecycleReport lifecycle, int tick)
+        {
+            var released = recentlyReleasedArmies == null ? null : recentlyReleasedArmies.GetActiveReleaseForLeader(party, tick);
+            if (released == null)
+            {
+                return false;
+            }
+
+            if (lifecycle != null)
+            {
+                lifecycle.ReleaseCooldownBlocks++;
+            }
+
+            return true;
         }
 
         private static bool HasActiveAttackArmy(List<CsmArmySnapshot> snapshots, CsmArmyAssignmentRegistry registry, string kingdomName)

@@ -37,10 +37,14 @@ namespace CalradiaStrategicMind.Settings
         public static float MissionWrongTargetToleranceDistance = 20f;
 
         public static int MaxObjectiveSyncAttemptsPerAssignment = 4;
+        public static int MaxObjectiveSyncAttemptsBeforeRelease = 4;
+        public static int MaxConsecutiveObjectiveMismatchTicks = 4;
         public static int MaxMissionRepathAttemptsPerAssignment = 4;
         public static int RedirectGraceTicks = 4;
         public static int MinimumTicksBetweenArmyRedirects = 8;
         public static int MaxRedirectsPerAssignment = 2;
+        public static int ReleasedArmyCooldownTicks = 8;
+        public static int ReleasedArmyLogCooldownTicks = 6;
 
         public static float MinimumArmyStrengthForAttack = 700f;
         public static float MinimumArmyStrengthForDefenseRedirect = 500f;

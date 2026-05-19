@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using CalradiaStrategicMind.Logging;
 using CalradiaStrategicMind.Settings;
 using CalradiaStrategicMind.Utils;
 using TaleWorlds.CampaignSystem.Party;
@@ -12,6 +13,7 @@ namespace CalradiaStrategicMind.Strategic
         private readonly CsmArmyAssignmentRegistry _assignmentRegistry;
         private readonly CsmArmyOperationalDirector _operationalDirector;
         private readonly CsmArmyFormationDirector _formationDirector;
+        private readonly CsmRecentlyReleasedArmyRegistry _recentlyReleasedArmies;
         private int _lastCommandTick;
 
         public CsmArmyDirector()
@@ -20,6 +22,7 @@ namespace CalradiaStrategicMind.Strategic
             _assignmentRegistry = new CsmArmyAssignmentRegistry();
             _operationalDirector = new CsmArmyOperationalDirector();
             _formationDirector = new CsmArmyFormationDirector();
+            _recentlyReleasedArmies = new CsmRecentlyReleasedArmyRegistry();
             _lastCommandTick = -9999;
         }
 
@@ -38,7 +41,8 @@ namespace CalradiaStrategicMind.Strategic
 
             var snapshots = _snapshotBuilder.Build();
             var isCommandCooldownActive = observationTick - _lastCommandTick < GetCooldownTicks();
-            var operationalReports = _operationalDirector.Execute(snapshots, defenseSnapshots, _assignmentRegistry, defenseRegistry, observationTick, isCommandCooldownActive);
+            var lifecycle = new CsmArmyLifecycleReport();
+            var operationalReports = _operationalDirector.Execute(snapshots, defenseSnapshots, _assignmentRegistry, defenseRegistry, _recentlyReleasedArmies, lifecycle, observationTick, isCommandCooldownActive);
             AddReports(reports, operationalReports);
 
             if (isCommandCooldownActive)
@@ -47,7 +51,7 @@ namespace CalradiaStrategicMind.Strategic
             }
             else
             {
-                var formationReports = _formationDirector.Execute(snapshots, defenseSnapshots, _assignmentRegistry, defenseRegistry, observationTick);
+                var formationReports = _formationDirector.Execute(snapshots, defenseSnapshots, _assignmentRegistry, defenseRegistry, _recentlyReleasedArmies, lifecycle, observationTick);
                 AddReports(reports, formationReports);
             }
 
@@ -56,6 +60,7 @@ namespace CalradiaStrategicMind.Strategic
                 _lastCommandTick = observationTick;
             }
 
+            LogLifecycle(observationTick, lifecycle);
             return reports;
         }
 
@@ -212,6 +217,17 @@ namespace CalradiaStrategicMind.Strategic
         private static int GetCooldownTicks()
         {
             return ArmyDirectorSettings.ArmyCommandCooldownTicks < 0 ? 0 : ArmyDirectorSettings.ArmyCommandCooldownTicks;
+        }
+
+        private void LogLifecycle(int observationTick, CsmArmyLifecycleReport lifecycle)
+        {
+            if (!ArmyDirectorSettings.EnableArmyDirectorLogs || lifecycle == null)
+            {
+                return;
+            }
+
+            CsmLogger.Info(
+                $"Observed CSM army lifecycle: tick={observationTick}, recentlyReleasedArmies={_recentlyReleasedArmies.CountActive(observationTick)}, releaseCooldownBlocks={lifecycle.ReleaseCooldownBlocks}, objectiveMismatchReleases={lifecycle.ObjectiveMismatchReleases}, duplicateReleaseReportsSuppressed={lifecycle.DuplicateReleaseReportsSuppressed}, reason='Army lifecycle snapshot'");
         }
     }
 }
