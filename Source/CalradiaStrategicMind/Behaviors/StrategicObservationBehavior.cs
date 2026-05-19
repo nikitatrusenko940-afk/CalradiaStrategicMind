@@ -27,9 +27,16 @@ namespace CalradiaStrategicMind.Behaviors
         private readonly DefenseController _defenseController;
         private readonly DefenseControllerSafetyGuard _defenseControllerSafetyGuard;
         private readonly DefenseCommandInterface _defenseCommandInterface;
+        private readonly DirectDefenseCommandController _directDefenseCommandController;
+        private readonly CsmArmyDirector _armyDirector;
+        private readonly CsmStrategicTaskDisciplineController _strategicTaskDisciplineController;
         private readonly DefenseScoreSimulator _defenseScoreSimulator;
         private readonly DefenseScoreSimulationSummaryBuilder _defenseScoreSimulationSummaryBuilder;
         private readonly ExperimentalDefenseScoreInfluenceRegistry _experimentalDefenseScoreInfluenceRegistry;
+        private int _defenseCommandsExecutedThisTick;
+        private int _blockedByArmyAssignmentThisTick;
+        private int _blockedByDefenseAssignmentThisTick;
+        private int _integrationConflictsDetectedThisTick;
         private int _nextPartyIndex;
         private int _nextSettlementIndex;
         private int _observationTick;
@@ -48,6 +55,9 @@ namespace CalradiaStrategicMind.Behaviors
             _defenseController = new DefenseController();
             _defenseControllerSafetyGuard = new DefenseControllerSafetyGuard();
             _defenseCommandInterface = new DefenseCommandInterface();
+            _directDefenseCommandController = new DirectDefenseCommandController();
+            _armyDirector = new CsmArmyDirector();
+            _strategicTaskDisciplineController = new CsmStrategicTaskDisciplineController();
             _defenseScoreSimulator = new DefenseScoreSimulator();
             _defenseScoreSimulationSummaryBuilder = new DefenseScoreSimulationSummaryBuilder();
             _experimentalDefenseScoreInfluenceRegistry = new ExperimentalDefenseScoreInfluenceRegistry();
@@ -203,6 +213,11 @@ namespace CalradiaStrategicMind.Behaviors
 
             var observedCount = 0;
             var checkedCount = 0;
+            var defenseSnapshots = new List<DefenseEvaluationSnapshot>();
+            _defenseCommandsExecutedThisTick = 0;
+            _blockedByArmyAssignmentThisTick = 0;
+            _blockedByDefenseAssignmentThisTick = 0;
+            _integrationConflictsDetectedThisTick = 0;
             _dryRunDefenseReportAggregator.BeginTick(_observationTick);
             _defenseScoreSimulationSummaryBuilder.BeginTick(_observationTick);
             _experimentalDefenseScoreInfluenceRegistry.BeginTick(_observationTick);
@@ -220,7 +235,7 @@ namespace CalradiaStrategicMind.Behaviors
                     continue;
                 }
 
-                if (ObserveDefenseSettlement(settlement, null))
+                if (ObserveDefenseSettlement(settlement, null, defenseSnapshots))
                 {
                     observedSettlementNames.Add(GetSettlementName(settlement));
                 }
@@ -240,7 +255,7 @@ namespace CalradiaStrategicMind.Behaviors
                     continue;
                 }
 
-                if (ObserveDefenseSettlement(settlement, snapshot))
+                if (ObserveDefenseSettlement(settlement, snapshot, defenseSnapshots))
                 {
                     observedSettlementNames.Add(GetSettlementName(settlement));
                     observedCount++;
@@ -262,7 +277,7 @@ namespace CalradiaStrategicMind.Behaviors
                     continue;
                 }
 
-                if (ObserveDefenseSettlement(settlement, null))
+                if (ObserveDefenseSettlement(settlement, null, defenseSnapshots))
                 {
                     observedSettlementNames.Add(GetSettlementName(settlement));
                     observedCount++;
@@ -286,9 +301,11 @@ namespace CalradiaStrategicMind.Behaviors
                     LogDefenseScoreSimulationSummary(scoreSimulationSummary);
                 }
             }
+
+            ObserveArmies(defenseSnapshots);
         }
 
-        private bool ObserveDefenseSettlement(Settlement settlement, DefenseEvaluationSnapshot? existingSnapshot)
+        private bool ObserveDefenseSettlement(Settlement settlement, DefenseEvaluationSnapshot? existingSnapshot, List<DefenseEvaluationSnapshot> defenseSnapshots)
         {
             if (!DefenseDiagnosticsSettings.EnableDefenseDiagnostics)
             {
@@ -298,6 +315,11 @@ namespace CalradiaStrategicMind.Behaviors
             var snapshot = existingSnapshot.HasValue
                 ? existingSnapshot.Value
                 : _defenseEvaluationSnapshotBuilder.Build(settlement, MaxDefenseCandidatesPerSettlement);
+            if (defenseSnapshots != null)
+            {
+                defenseSnapshots.Add(snapshot);
+            }
+
             if (DefenseDiagnosticsSettings.EnableVerboseDefenseLogs)
             {
                 LogSettlementThreat(snapshot.ThreatReport);
@@ -356,8 +378,40 @@ namespace CalradiaStrategicMind.Behaviors
                 LogDefenseControllerDecision(defenseControllerDecision);
                 var defenseControllerSafetyReport = _defenseControllerSafetyGuard.Evaluate(summary, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerDecision);
                 LogDefenseControllerSafety(defenseControllerSafetyReport);
+                if (DefenseAssignmentSettings.EnableDefenseAssignments)
+                {
+                    var assignmentReports = _directDefenseCommandController.ProcessAssignments(snapshot, _observationTick);
+                    LogDefenseAssignmentReports(assignmentReports);
+                }
+
+                if (DirectDefenseCommandSettings.EnableDirectDefenseCommand && IsUrgentDefenseAction(actionPlan.RecommendedAction))
+                {
+                    var directCommandReport = _directDefenseCommandController.Execute(snapshot, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerSafetyReport, _armyDirector, _observationTick);
+                    if (DirectDefenseCommandSettings.EnableDirectDefenseCommandLogs)
+                    {
+                        LogDirectDefenseCommand(directCommandReport);
+                        LogDefenseCommand(directCommandReport.ToDefenseCommandReport());
+                    }
+
+                    RecordIntegrationBlock(directCommandReport.Reason);
+                    if (directCommandReport.CommandApplied)
+                    {
+                        _defenseCommandsExecutedThisTick++;
+                    }
+
+                    if (DefenseAssignmentSettings.EnableDefenseAssignments)
+                    {
+                        var assignmentReports = _directDefenseCommandController.ConsumePendingAssignmentReports();
+                        LogDefenseAssignmentReports(assignmentReports);
+                    }
+                }
+
                 var commandReport = _defenseCommandInterface.RequestReinforcement(summary, actionPlan, dryRunDecision, defenseControllerSafetyReport);
-                LogDefenseCommand(commandReport);
+                if (ShouldLogDefenseCommand(commandReport))
+                {
+                    LogDefenseCommand(commandReport);
+                }
+
                 if (DefenseScoreSimulationSettings.EnableDefenseScoreSimulation)
                 {
                     var scoreSimulationReport = _defenseScoreSimulator.Simulate(summary, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerSafetyReport);
@@ -368,6 +422,114 @@ namespace CalradiaStrategicMind.Behaviors
             }
 
             return true;
+        }
+
+        private void ObserveArmies(List<DefenseEvaluationSnapshot> defenseSnapshots)
+        {
+            if (!ArmyDirectorSettings.EnableArmyDirector)
+            {
+                return;
+            }
+
+            var reports = _armyDirector.Evaluate(defenseSnapshots, _directDefenseCommandController.AssignmentRegistry, _observationTick);
+            var armyCommandsCreated = 0;
+            var armyCommandsReasserted = 0;
+            if (reports != null)
+            {
+                for (var index = 0; index < reports.Count; index++)
+                {
+                    var report = reports[index];
+                    if (report.CommandApplied && report.Status == "Created")
+                    {
+                        armyCommandsCreated++;
+                    }
+
+                    if (report.CommandApplied && report.Status == "Reasserted")
+                    {
+                        armyCommandsReasserted++;
+                    }
+
+                    RecordIntegrationBlock(report.Reason);
+                    if (IsIntegrationConflictReason(report.Reason))
+                    {
+                        _integrationConflictsDetectedThisTick++;
+                        LogIntegrationConflict(report.ArmyName, report.TargetName, "AttackDefenseAssignmentConflict", report.Reason);
+                    }
+                }
+            }
+
+            _strategicTaskDisciplineController.Execute(_armyDirector, _directDefenseCommandController, _observationTick);
+            LogIntegrationHealth(armyCommandsCreated, armyCommandsReasserted);
+            if (!ArmyDirectorSettings.EnableArmyDirectorLogs || reports == null)
+            {
+                return;
+            }
+
+            for (var index = 0; index < reports.Count; index++)
+            {
+                var report = reports[index];
+                if (!ShouldLogArmyDirectorReport(report))
+                {
+                    continue;
+                }
+
+                CsmLogger.Info(
+                    $"Observed CSM army director: tick={report.ObservationTick}, army='{report.ArmyName}', kingdom='{report.KingdomName}', objective='{report.Objective}', target='{report.TargetName}', commandApplied={report.CommandApplied}, status='{report.Status}', reason='{report.Reason}'");
+            }
+        }
+
+        private static bool ShouldLogArmyDirectorReport(CsmArmyDirectorReport report)
+        {
+            return report.CommandApplied
+                || report.Status == "Created"
+                || report.Status == "Reasserted"
+                || report.Status == "Completed"
+                || report.Status == "Invalid"
+                || report.Status == "Expired"
+                || report.Status == "Skipped";
+        }
+
+        private void RecordIntegrationBlock(string reason)
+        {
+            if (string.IsNullOrWhiteSpace(reason))
+            {
+                return;
+            }
+
+            if (reason.IndexOf("active CSM army assignment", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                _blockedByArmyAssignmentThisTick++;
+                return;
+            }
+
+            if (reason.IndexOf("active CSM defense assignment", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                _blockedByDefenseAssignmentThisTick++;
+            }
+        }
+
+        private static bool IsIntegrationConflictReason(string reason)
+        {
+            return !string.IsNullOrWhiteSpace(reason)
+                && reason.IndexOf("active CSM defense assignment", System.StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private void LogIntegrationConflict(string partyOrArmyName, string settlementName, string conflictType, string reason)
+        {
+            CsmLogger.Info(
+                $"Observed CSM integration conflict: tick={_observationTick}, party='{partyOrArmyName}', army='{partyOrArmyName}', settlement='{settlementName}', conflictType='{conflictType}', reason='{reason}'");
+        }
+
+        private void LogIntegrationHealth(int armyCommandsCreated, int armyCommandsReasserted)
+        {
+            CsmLogger.Info(
+                $"Observed CSM integration health: tick={_observationTick}, activeArmyAssignments={_armyDirector.CountActiveAssignments()}, activeDefenseAssignments={_directDefenseCommandController.CountActiveAssignments()}, armyCommandsCreated={armyCommandsCreated}, armyCommandsReasserted={armyCommandsReasserted}, defenseCommandsExecuted={_defenseCommandsExecutedThisTick}, blockedByArmyAssignment={_blockedByArmyAssignmentThisTick}, blockedByDefenseAssignment={_blockedByDefenseAssignmentThisTick}, conflictsDetected={_integrationConflictsDetectedThisTick}, reason='Integration health snapshot'");
+        }
+
+        private static bool IsUrgentDefenseAction(string action)
+        {
+            return string.Equals(action, "UrgentDefense", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(action, "RequestUrgentDefense", System.StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool ShouldObserveSettlement(Settlement settlement)
@@ -541,6 +703,37 @@ namespace CalradiaStrategicMind.Behaviors
         {
             CsmLogger.Info(
                 $"Observed defense command: tick={_observationTick}, settlement='{report.SettlementName}', owner='{report.OwnerKingdomName}', commandType='{report.CommandType}', candidate='{report.CandidateName}', candidateCategory={report.CandidateCategory}, isAllowed={report.IsAllowed}, wasExecuted={report.WasExecuted}, reason='{report.Reason}'");
+        }
+
+        private static bool ShouldLogDefenseCommand(DefenseCommandReport report)
+        {
+            if (report.WasExecuted)
+            {
+                return true;
+            }
+
+            return report.CommandType != "RequestReinforcement";
+        }
+
+        private static void LogDirectDefenseCommand(DirectDefenseCommandReport report)
+        {
+            CsmLogger.Info(
+                $"Observed direct defense command: tick={report.ObservationTick}, settlement='{report.SettlementName}', candidate='{report.CandidateName}', commandApplied={report.CommandApplied}, reason='{report.Reason}'");
+        }
+
+        private static void LogDefenseAssignmentReports(System.Collections.Generic.List<CsmDefenseAssignmentReport> reports)
+        {
+            if (!DefenseAssignmentSettings.EnableAssignmentLogs || reports == null)
+            {
+                return;
+            }
+
+            for (var index = 0; index < reports.Count; index++)
+            {
+                var report = reports[index];
+                CsmLogger.Info(
+                    $"Observed defense assignment: tick={report.ObservationTick}, settlement='{report.SettlementName}', candidate='{report.PartyName}', status='{report.Status}', reason='{report.Reason}'");
+            }
         }
 
         private void LogDefenseScoreSimulation(DefenseScoreSimulationReport report)

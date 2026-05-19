@@ -1,5 +1,7 @@
 param(
-    [switch]$AllowExperimentalAi
+    [switch]$AllowExperimentalAi,
+    [switch]$AllowDirectDefenseCommand,
+    [switch]$AllowArmyDirector
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,8 +20,12 @@ $forbiddenPatterns = @(
     "SetMoveBesiegeSettlement",
     "SetTargetSettlement",
     "SetPartyObjective",
+    "AiBehaviorObject =",
+    "ArmyType =",
+    "CreateArmy",
     "GatherArmyAction",
     "DisbandArmyAction",
+    "DisbandArmy",
     "SiegeEventManager.StartSiegeEvent",
     "LiftSiegeAction",
     "Harmony",
@@ -47,6 +53,32 @@ $experimentalAiAllowedPatterns = @(
     "PartyThinkParams"
 )
 
+$directDefenseCommandAllowedPath = ".\Source\CalradiaStrategicMind\Strategic\DirectDefenseCommandController.cs"
+$directDefenseCommandAllowedPatterns = @(
+    "SetMoveDefendSettlement"
+)
+
+$armyDirectorAllowedPaths = @(
+    ".\Source\CalradiaStrategicMind\Strategic\CsmArmyDirector.cs",
+    ".\Source\CalradiaStrategicMind\Strategic\CsmArmyFormationDirector.cs",
+    ".\Source\CalradiaStrategicMind\Strategic\CsmArmyOperationalDirector.cs"
+)
+$armyDirectorAllowedPatterns = @(
+    "SetMoveDefendSettlement",
+    "SetMoveBesiegeSettlement",
+    "SetMoveGoToSettlement",
+    "CreateArmy"
+)
+
+$armyObjectiveSyncAllowedPaths = @(
+    ".\Source\CalradiaStrategicMind\Strategic\CsmArmyOperationalDirector.cs",
+    ".\Source\CalradiaStrategicMind\Strategic\CsmArmyObjectiveSyncController.cs"
+)
+$armyObjectiveSyncAllowedPatterns = @(
+    "AiBehaviorObject =",
+    "ArmyType ="
+)
+
 function Test-IsAllowedFinding {
     param(
         [string]$Path,
@@ -68,6 +100,24 @@ function Test-IsAllowedFinding {
         return $true
     }
 
+    if ($AllowDirectDefenseCommand -and
+        $Path -eq $directDefenseCommandAllowedPath -and
+        $directDefenseCommandAllowedPatterns -contains $Pattern) {
+        return $true
+    }
+
+    if ($AllowArmyDirector -and
+        $armyDirectorAllowedPaths -contains $Path -and
+        $armyDirectorAllowedPatterns -contains $Pattern) {
+        return $true
+    }
+
+    if ($AllowArmyDirector -and
+        $armyObjectiveSyncAllowedPaths -contains $Path -and
+        $armyObjectiveSyncAllowedPatterns -contains $Pattern) {
+        return $true
+    }
+
     return $false
 }
 
@@ -86,7 +136,8 @@ $findings = @()
 foreach ($file in $files) {
     foreach ($pattern in $forbiddenPatterns) {
         $escapedPattern = [regex]::Escape($pattern)
-        $matches = Select-String -LiteralPath $file.FullName -Pattern "(?<![A-Za-z0-9_])$escapedPattern(?![A-Za-z0-9_])"
+        $matchPattern = if ($pattern.EndsWith(" =")) { "(?<![A-Za-z0-9_])$escapedPattern" } else { "(?<![A-Za-z0-9_])$escapedPattern(?![A-Za-z0-9_])" }
+        $matches = Select-String -LiteralPath $file.FullName -Pattern $matchPattern
         foreach ($match in $matches) {
             $relativePath = Resolve-Path -LiteralPath $match.Path -Relative
             $line = $match.Line.Trim()
