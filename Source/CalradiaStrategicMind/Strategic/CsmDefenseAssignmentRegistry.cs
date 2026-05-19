@@ -40,6 +40,8 @@ namespace CalradiaStrategicMind.Strategic
                 observationTick,
                 1,
                 0,
+                -1f,
+                observationTick,
                 reason,
                 "Created");
             _activeAssignments[key] = assignment;
@@ -71,6 +73,38 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             return false;
+        }
+
+        public bool HasActiveAssignmentForParty(string partyId, string partyName)
+        {
+            foreach (var assignment in _activeAssignments.Values)
+            {
+                if (MatchesParty(assignment, partyId, partyName))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public int CountActiveAssignments()
+        {
+            return _activeAssignments.Count;
+        }
+
+        public int CountActiveAssignmentsForKingdom(string ownerKingdomName)
+        {
+            var count = 0;
+            foreach (var assignment in _activeAssignments.Values)
+            {
+                if (NamesEqual(assignment.OwnerKingdomName, ownerKingdomName))
+                {
+                    count++;
+                }
+            }
+
+            return count;
         }
 
         public void MarkReasserted(CsmDefenseAssignment assignment, int observationTick, string reason)
@@ -114,6 +148,21 @@ namespace CalradiaStrategicMind.Strategic
             return NamesEqual(assignment.SettlementName, settlementName);
         }
 
+        private static bool MatchesParty(CsmDefenseAssignment assignment, string partyId, string partyName)
+        {
+            if (assignment == null)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(assignment.PartyId) && !string.IsNullOrWhiteSpace(partyId))
+            {
+                return NamesEqual(assignment.PartyId, partyId);
+            }
+
+            return NamesEqual(assignment.PartyName, partyName);
+        }
+
         private static string CreateKey(string settlementId, string settlementName, string partyId, string partyName)
         {
             return Normalize(string.IsNullOrWhiteSpace(settlementId) ? settlementName : settlementId)
@@ -146,6 +195,8 @@ namespace CalradiaStrategicMind.Strategic
             int lastCommandTick,
             int commandCount,
             int reassertionCount,
+            float lastDistanceToSettlement,
+            int lastProgressTick,
             string reason,
             string status)
         {
@@ -157,8 +208,11 @@ namespace CalradiaStrategicMind.Strategic
             LastCommandTick = lastCommandTick;
             CommandCount = commandCount;
             ReassertionCount = reassertionCount;
+            LastDistanceToSettlement = lastDistanceToSettlement;
+            LastProgressTick = lastProgressTick;
             Reason = reason;
             Status = status;
+            OwnerKingdomName = "unknown";
         }
 
         public string SettlementId { get; private set; }
@@ -176,6 +230,12 @@ namespace CalradiaStrategicMind.Strategic
         public int CommandCount { get; set; }
 
         public int ReassertionCount { get; set; }
+
+        public float LastDistanceToSettlement { get; set; }
+
+        public int LastProgressTick { get; set; }
+
+        public string OwnerKingdomName { get; set; }
 
         public string Reason { get; set; }
 

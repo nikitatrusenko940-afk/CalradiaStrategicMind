@@ -374,12 +374,13 @@ namespace CalradiaStrategicMind.Behaviors
                     LogDefenseAssignmentReports(assignmentReports);
                 }
 
-                if (DirectDefenseCommandSettings.EnableDirectDefenseCommand)
+                if (DirectDefenseCommandSettings.EnableDirectDefenseCommand && IsUrgentDefenseAction(actionPlan.RecommendedAction))
                 {
-                    var directCommandReport = _directDefenseCommandController.Execute(snapshot, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerSafetyReport, _observationTick);
+                    var directCommandReport = _directDefenseCommandController.Execute(snapshot, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerSafetyReport, _armyDirector, _observationTick);
                     if (DirectDefenseCommandSettings.EnableDirectDefenseCommandLogs)
                     {
                         LogDirectDefenseCommand(directCommandReport);
+                        LogDefenseCommand(directCommandReport.ToDefenseCommandReport());
                     }
 
                     if (DefenseAssignmentSettings.EnableDefenseAssignments)
@@ -390,7 +391,11 @@ namespace CalradiaStrategicMind.Behaviors
                 }
 
                 var commandReport = _defenseCommandInterface.RequestReinforcement(summary, actionPlan, dryRunDecision, defenseControllerSafetyReport);
-                LogDefenseCommand(commandReport);
+                if (ShouldLogDefenseCommand(commandReport))
+                {
+                    LogDefenseCommand(commandReport);
+                }
+
                 if (DefenseScoreSimulationSettings.EnableDefenseScoreSimulation)
                 {
                     var scoreSimulationReport = _defenseScoreSimulator.Simulate(summary, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerSafetyReport);
@@ -438,6 +443,12 @@ namespace CalradiaStrategicMind.Behaviors
                 || report.Status == "Invalid"
                 || report.Status == "Expired"
                 || report.Status == "Skipped";
+        }
+
+        private static bool IsUrgentDefenseAction(string action)
+        {
+            return string.Equals(action, "UrgentDefense", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(action, "RequestUrgentDefense", System.StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool ShouldObserveSettlement(Settlement settlement)
@@ -613,6 +624,16 @@ namespace CalradiaStrategicMind.Behaviors
                 $"Observed defense command: tick={_observationTick}, settlement='{report.SettlementName}', owner='{report.OwnerKingdomName}', commandType='{report.CommandType}', candidate='{report.CandidateName}', candidateCategory={report.CandidateCategory}, isAllowed={report.IsAllowed}, wasExecuted={report.WasExecuted}, reason='{report.Reason}'");
         }
 
+        private static bool ShouldLogDefenseCommand(DefenseCommandReport report)
+        {
+            if (report.WasExecuted)
+            {
+                return true;
+            }
+
+            return report.CommandType != "RequestReinforcement";
+        }
+
         private static void LogDirectDefenseCommand(DirectDefenseCommandReport report)
         {
             CsmLogger.Info(
@@ -630,7 +651,7 @@ namespace CalradiaStrategicMind.Behaviors
             {
                 var report = reports[index];
                 CsmLogger.Info(
-                    $"Observed CSM defense assignment: tick={report.ObservationTick}, settlement='{report.SettlementName}', party='{report.PartyName}', status='{report.Status}', commandApplied={report.CommandApplied}, reason='{report.Reason}'");
+                    $"Observed defense assignment: tick={report.ObservationTick}, settlement='{report.SettlementName}', candidate='{report.PartyName}', status='{report.Status}', reason='{report.Reason}'");
             }
         }
 

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using CalradiaStrategicMind.Settings;
+using TaleWorlds.CampaignSystem.Party;
 
 namespace CalradiaStrategicMind.Strategic
 {
@@ -49,6 +50,23 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             return reports;
+        }
+
+        public bool HasActiveAssignmentForParty(MobileParty party)
+        {
+            if (party == null)
+            {
+                return false;
+            }
+
+            var army = party.Army;
+            if (army == null || army.LeaderParty == null)
+            {
+                return false;
+            }
+
+            var armyId = army.LeaderParty.StringId ?? string.Empty;
+            return _assignmentRegistry.HasActiveAssignmentForArmy(armyId);
         }
 
         private static void AddReports(List<CsmArmyDirectorReport> target, List<CsmArmyDirectorReport> source)

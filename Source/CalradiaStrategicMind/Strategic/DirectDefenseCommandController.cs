@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using CalradiaStrategicMind.Logging;
 using CalradiaStrategicMind.Settings;
 using CalradiaStrategicMind.Utils;
 using TaleWorlds.CampaignSystem;
@@ -11,6 +12,7 @@ namespace CalradiaStrategicMind.Strategic
     public class DirectDefenseCommandController
     {
         private readonly CsmDefenseAssignmentRegistry _assignmentRegistry;
+        private readonly DefenseCandidateScorer _candidateScorer;
         private readonly Dictionary<string, int> _settlementCommandCounts;
         private readonly HashSet<string> _commandedParties;
         private readonly List<CsmDefenseAssignmentReport> _pendingAssignmentReports;
@@ -20,6 +22,7 @@ namespace CalradiaStrategicMind.Strategic
         public DirectDefenseCommandController()
         {
             _assignmentRegistry = new CsmDefenseAssignmentRegistry();
+            _candidateScorer = new DefenseCandidateScorer();
             _settlementCommandCounts = new Dictionary<string, int>();
             _commandedParties = new HashSet<string>();
             _pendingAssignmentReports = new List<CsmDefenseAssignmentReport>();
@@ -47,12 +50,13 @@ namespace CalradiaStrategicMind.Strategic
             DryRunDefenseDecision dryRunDecision,
             DryRunDefenseDecisionStabilityReport stabilityReport,
             DefenseControllerSafetyReport safetyReport,
+            CsmArmyDirector armyDirector,
             int observationTick)
         {
             return SafeExecutor.Run(
                 "Execute direct defense command",
-                () => ExecuteCore(snapshot, actionPlan, dryRunDecision, stabilityReport, safetyReport, observationTick),
-                new DirectDefenseCommandReport(observationTick, "unknown", "none", false, "Direct defense command failed"));
+                () => ExecuteCore(snapshot, actionPlan, dryRunDecision, stabilityReport, safetyReport, armyDirector, observationTick),
+                CreateReport(observationTick, "unknown", "unknown", "UrgentDefense", "none", PartyObservationCategory.Unknown, false, false, "Direct defense command failed"));
         }
 
         private List<CsmDefenseAssignmentReport> ProcessAssignmentsCore(DefenseEvaluationSnapshot snapshot, int observationTick)
@@ -72,7 +76,7 @@ namespace CalradiaStrategicMind.Strategic
             {
                 var assignment = assignments[index];
                 var party = FindPartyByIdOrName(assignment.PartyId, assignment.PartyName);
-                var invalidReason = GetInvalidAssignmentReason(snapshot, assignment, party, observationTick);
+                var invalidReason = GetInvalidAssignmentReason(snapshot, assignment, party, settlement, observationTick);
                 if (!string.IsNullOrWhiteSpace(invalidReason))
                 {
                     var status = GetClosedAssignmentStatus(assignment, observationTick, invalidReason);
@@ -81,14 +85,30 @@ namespace CalradiaStrategicMind.Strategic
                     continue;
                 }
 
-                if (!ShouldReassertAssignment(assignment, observationTick))
+                var completionReason = GetCompletedAssignmentReason(snapshot, assignment, party, settlement);
+                if (!string.IsNullOrWhiteSpace(completionReason))
+                {
+                    _assignmentRegistry.Close(assignment, "Completed", completionReason);
+                    reports.Add(CreateAssignmentReport(observationTick, assignment, "Completed", false, completionReason));
+                    continue;
+                }
+
+                var expiredReason = GetProgressExpiredReason(assignment, party, settlement, observationTick);
+                if (!string.IsNullOrWhiteSpace(expiredReason))
+                {
+                    _assignmentRegistry.Close(assignment, "Expired", expiredReason);
+                    reports.Add(CreateAssignmentReport(observationTick, assignment, "Expired", false, expiredReason));
+                    continue;
+                }
+
+                if (!ShouldReassertAssignment(assignment, party, settlement, observationTick))
                 {
                     continue;
                 }
 
                 party.SetMoveDefendSettlement(settlement, false, party.NavigationCapability);
-                _assignmentRegistry.MarkReasserted(assignment, observationTick, "CSM defense assignment reasserted");
-                reports.Add(CreateAssignmentReport(observationTick, assignment, "Reasserted", true, "CSM defense assignment reasserted"));
+                _assignmentRegistry.MarkReasserted(assignment, observationTick, "Defense assignment reasserted because candidate target changed");
+                reports.Add(CreateAssignmentReport(observationTick, assignment, "Reasserted", true, "Defense assignment reasserted because candidate target changed"));
             }
 
             return reports;
@@ -100,13 +120,19 @@ namespace CalradiaStrategicMind.Strategic
             DryRunDefenseDecision dryRunDecision,
             DryRunDefenseDecisionStabilityReport stabilityReport,
             DefenseControllerSafetyReport safetyReport,
+            CsmArmyDirector armyDirector,
             int observationTick)
         {
             ResetDailyStateIfNeeded(observationTick);
 
             var settlementName = snapshot.ThreatReport.SettlementName;
             var candidateName = actionPlan.PrimaryCandidateName;
-            if (!DirectDefenseCommandSettings.EnableDirectDefenseCommand)
+            if (!DefenseControllerSettings.EnableRealDefenseController || !DefenseActionThresholdSettings.EnableRealDefenseController)
+            {
+                return CreateReport(observationTick, settlementName, candidateName, false, "Real defense controller disabled");
+            }
+
+            if (!DirectDefenseCommandSettings.EnableDirectDefenseCommand || !DirectDefenseCommandSettings.EnableDirectDefenseCommands)
             {
                 return CreateReport(observationTick, settlementName, candidateName, false, "Direct defense command disabled");
             }
@@ -127,9 +153,29 @@ namespace CalradiaStrategicMind.Strategic
                 return CreateReport(observationTick, settlementName, candidateName, false, "Action is not urgent defense");
             }
 
-            if (!IsLowOrCriticalCoverage(snapshot.CoverageReport))
+            if (!DefenseActionThresholdSettings.AllowUrgentDefenseCommands)
             {
-                return CreateReport(observationTick, settlementName, candidateName, false, "Coverage status is not low or critical");
+                return CreateReport(observationTick, settlementName, candidateName, false, "Urgent defense commands disabled");
+            }
+
+            if (!IsUrgentDefenseAction(actionPlan.RecommendedAction))
+            {
+                return CreateReport(observationTick, settlementName, candidateName, false, "Recommended action is not UrgentDefense");
+            }
+
+            if (!IsCriticalCoverage(snapshot.CoverageReport))
+            {
+                return CreateReport(observationTick, settlementName, candidateName, false, "Coverage is not critical");
+            }
+
+            if (actionPlan.DefensePriority < DefenseActionThresholdSettings.MinimumDefensePriorityToAct)
+            {
+                return CreateReport(observationTick, settlementName, candidateName, false, "Defense priority is below activation threshold");
+            }
+
+            if (actionPlan.PlanConfidence < DefenseActionThresholdSettings.MinimumDefenseConfidenceToAct)
+            {
+                return CreateReport(observationTick, settlementName, candidateName, false, "Defense confidence is below activation threshold");
             }
 
             if (!dryRunDecision.WouldAct || !safetyReport.DryRunWouldAct)
@@ -137,13 +183,14 @@ namespace CalradiaStrategicMind.Strategic
                 return CreateReport(observationTick, settlementName, candidateName, false, "Dry-run would-act signal required");
             }
 
-            if (DirectDefenseCommandSettings.RequireStableWouldActSignal
-                && (!stabilityReport.HasStableWouldActSignal || !safetyReport.HasStableWouldActSignal))
+            if (DefenseActionThresholdSettings.RequireStableDefenseSignal
+                && (!IsUrgentDefenseAction(stabilityReport.StableAction)
+                    || stabilityReport.ConsecutiveSameActionCount < DefenseActionThresholdSettings.RequiredStableDefenseTicks))
             {
-                return CreateReport(observationTick, settlementName, candidateName, false, "Stable would-act signal required");
+                return CreateReport(observationTick, settlementName, candidateName, false, "Stable urgent defense signal required");
             }
 
-            if (!NamesEqual(dryRunDecision.Action, "RequestUrgentDefense"))
+            if (!IsUrgentDefenseAction(dryRunDecision.Action))
             {
                 return CreateReport(observationTick, settlementName, candidateName, false, "Dry-run action is not RequestUrgentDefense");
             }
@@ -164,33 +211,68 @@ namespace CalradiaStrategicMind.Strategic
                 return CreateReport(observationTick, settlementName, candidateName, false, "Settlement not found");
             }
 
+            if (!settlement.IsCastle && !settlement.IsTown)
+            {
+                return CreateReport(observationTick, settlementName, candidateName, false, "Settlement is not a castle or town");
+            }
+
+            if (DefenseActionThresholdSettings.RequireTargetSettlementUnderSiegeForUrgentDefense && settlement.SiegeEvent == null)
+            {
+                return CreateReport(observationTick, settlementName, candidateName, false, "Target settlement is not under active siege");
+            }
+
+            if (!DefenseActionThresholdSettings.AllowArmyPresenceDefenseWithoutSiege && !snapshot.ThreatReport.HasActiveSiege)
+            {
+                return CreateReport(observationTick, settlementName, candidateName, false, "Army presence without siege is monitor-only");
+            }
+
+            if (_assignmentRegistry.CountActiveAssignments() >= DirectDefenseCommandSettings.MaxActiveDefenseAssignmentsGlobal)
+            {
+                return CreateReport(observationTick, settlementName, candidateName, false, "Global active defense assignment limit reached");
+            }
+
+            if (_assignmentRegistry.CountActiveAssignmentsForKingdom(snapshot.ThreatReport.OwnerKingdomName) >= DirectDefenseCommandSettings.MaxActiveDefenseAssignmentsPerKingdom)
+            {
+                return CreateReport(observationTick, settlementName, candidateName, false, "Kingdom active defense assignment limit reached");
+            }
+
             var activeAssignment = GetValidActiveAssignmentForSettlement(snapshot, settlement, observationTick);
             if (activeAssignment != null)
             {
                 return CreateReport(observationTick, settlementName, activeAssignment.PartyName, false, "Active CSM defense assignment already exists");
             }
 
-            var candidate = FindPartyByName(candidateName);
-            if (candidate == null)
+            DefenseCandidateScore topRejected;
+            var selectedCandidate = _candidateScorer.SelectBest(settlement, snapshot.CandidateReports, candidateName, _assignmentRegistry, armyDirector, out topRejected);
+            LogCandidateScore(observationTick, settlementName, selectedCandidate, topRejected);
+            if (selectedCandidate == null)
             {
-                return CreateReport(observationTick, settlementName, candidateName, false, "Primary candidate not found");
+                return CreateReport(observationTick, settlementName, candidateName, false, topRejected == null ? "Primary candidate not found" : topRejected.Reason);
             }
 
+            var candidate = selectedCandidate.Party;
             var commandParty = GetCommandParty(candidate);
             if (commandParty == null)
             {
-                return CreateReport(observationTick, settlementName, candidateName, false, "Command party not found");
+                return CreateReport(observationTick, settlementName, selectedCandidate.CandidateName, false, "Command party not found");
             }
 
             var commandPartyName = GetPartyName(commandParty);
+            var commandPartyCategory = GetCommandPartyCategory(commandParty);
             if (_commandedParties.Contains(Normalize(commandPartyName)))
             {
                 return CreateReport(observationTick, settlementName, commandPartyName, false, "Party already received direct command today");
             }
 
-            if (!CanCommandParty(commandParty))
+            if (_assignmentRegistry.HasActiveAssignmentForParty(GetPartyId(commandParty), commandPartyName))
             {
-                return CreateReport(observationTick, settlementName, commandPartyName, false, "Party cannot receive direct defense command");
+                return CreateReport(observationTick, settlementName, commandPartyName, false, "Candidate has active CSM defense assignment");
+            }
+
+            var partyBlockReason = GetCommandPartyBlockReason(commandParty, settlement, selectedCandidate.Distance, armyDirector);
+            if (!string.IsNullOrWhiteSpace(partyBlockReason))
+            {
+                return CreateReport(observationTick, settlementName, commandPartyName, false, partyBlockReason);
             }
 
             commandParty.SetMoveDefendSettlement(settlement, false, commandParty.NavigationCapability);
@@ -207,10 +289,13 @@ namespace CalradiaStrategicMind.Strategic
                     commandPartyName,
                     observationTick,
                     "Direct defense command created CSM assignment");
+                assignment.OwnerKingdomName = snapshot.ThreatReport.OwnerKingdomName;
+                assignment.LastDistanceToSettlement = settlement.Position.Distance(commandParty.Position);
+                assignment.LastProgressTick = observationTick;
                 _pendingAssignmentReports.Add(CreateAssignmentReport(observationTick, assignment, assignment.Status, true, "Direct defense command created CSM assignment"));
             }
 
-            return CreateReport(observationTick, settlementName, commandPartyName, true, "Direct defense command applied");
+            return CreateReport(observationTick, settlementName, snapshot.ThreatReport.OwnerKingdomName, "UrgentDefense", commandPartyName, commandPartyCategory, true, true, "Direct urgent defense command applied");
         }
 
         private void ResetDailyStateIfNeeded(int observationTick)
@@ -261,6 +346,101 @@ namespace CalradiaStrategicMind.Strategic
             return party.MemberRoster != null && party.MemberRoster.TotalManCount > 0;
         }
 
+        private static string GetCommandPartyBlockReason(
+            MobileParty party,
+            Settlement settlement,
+            float distanceToSettlement,
+            CsmArmyDirector armyDirector)
+        {
+            if (party == null)
+            {
+                return "Command party not found";
+            }
+
+            if (party.IsMainParty)
+            {
+                return "Candidate is player party";
+            }
+
+            if (party.MapEvent != null)
+            {
+                return "Candidate is in battle";
+            }
+
+            if (party.BesiegedSettlement != null && party.BesiegedSettlement.MapFaction != party.MapFaction)
+            {
+                return "Candidate is already besieging enemy target";
+            }
+
+            if (settlement == null || settlement.MapFaction == null || party.MapFaction != settlement.MapFaction)
+            {
+                return "Candidate faction does not match settlement owner faction";
+            }
+
+            if (party.Army != null && party.Army.LeaderParty == party)
+            {
+                if (!DirectDefenseCommandSettings.AllowArmyPartyDefenseCommands)
+                {
+                    return "Army party defense commands disabled";
+                }
+            }
+            else if (party.Army == null)
+            {
+                if (!DirectDefenseCommandSettings.AllowLordPartyDefenseCommands)
+                {
+                    return "Lord party defense commands disabled";
+                }
+            }
+            else
+            {
+                return "Candidate is army member but not army leader";
+            }
+
+            if (distanceToSettlement > DirectDefenseCommandSettings.MaxUrgentDefenseCommandDistance)
+            {
+                return "Candidate is too far for urgent defense command";
+            }
+
+            if (armyDirector != null && armyDirector.HasActiveAssignmentForParty(party))
+            {
+                return "Candidate blocked because it has active CSM army assignment";
+            }
+
+            if (!CanCommandParty(party))
+            {
+                return "Party cannot receive direct defense command";
+            }
+
+            return null;
+        }
+
+        private static void LogCandidateScore(int tick, string settlementName, DefenseCandidateScore selected, DefenseCandidateScore rejected)
+        {
+            if (selected != null)
+            {
+                CsmLogger.Info(
+                    $"Observed defense candidate score: tick={tick}, settlement='{settlementName}', selectedCandidate='{selected.CandidateName}', score={selected.Score:0.00}, distance={selected.Distance:0.00}, strength={selected.Strength:0.00}, category={selected.CandidateCategory}, reason='{selected.Reason}'");
+            }
+
+            if (rejected != null)
+            {
+                CsmLogger.Info(
+                    $"Observed defense candidate rejection: tick={tick}, settlement='{settlementName}', rejectedCandidate='{rejected.CandidateName}', score={rejected.Score:0.00}, distance={rejected.Distance:0.00}, strength={rejected.Strength:0.00}, reason='{rejected.Reason}'");
+            }
+        }
+
+        private static PartyObservationCategory GetCommandPartyCategory(MobileParty party)
+        {
+            if (party == null)
+            {
+                return PartyObservationCategory.Unknown;
+            }
+
+            return party.Army != null && party.Army.LeaderParty == party
+                ? PartyObservationCategory.ArmyParty
+                : PartyObservationCategory.LordParty;
+        }
+
         private CsmDefenseAssignment GetValidActiveAssignmentForSettlement(
             DefenseEvaluationSnapshot snapshot,
             Settlement settlement,
@@ -283,7 +463,7 @@ namespace CalradiaStrategicMind.Strategic
             {
                 var assignment = assignments[index];
                 var party = FindPartyByIdOrName(assignment.PartyId, assignment.PartyName);
-                var invalidReason = GetInvalidAssignmentReason(snapshot, assignment, party, observationTick);
+                var invalidReason = GetInvalidAssignmentReason(snapshot, assignment, party, settlement, observationTick);
                 if (string.IsNullOrWhiteSpace(invalidReason))
                 {
                     return assignment;
@@ -297,6 +477,7 @@ namespace CalradiaStrategicMind.Strategic
             DefenseEvaluationSnapshot snapshot,
             CsmDefenseAssignment assignment,
             MobileParty party,
+            Settlement settlement,
             int observationTick)
         {
             if (assignment == null)
@@ -309,14 +490,21 @@ namespace CalradiaStrategicMind.Strategic
                 return "Assignment age limit exceeded";
             }
 
-            if (!IsAssignmentThreatStillValid(snapshot))
-            {
-                return "Settlement no longer has urgent defense threat";
-            }
-
             if (party == null)
             {
                 return "Assigned party not found";
+            }
+
+            if (settlement == null)
+            {
+                return "Assigned settlement not found";
+            }
+
+            if (!string.IsNullOrWhiteSpace(assignment.OwnerKingdomName)
+                && !NamesEqual(assignment.OwnerKingdomName, "unknown")
+                && !NamesEqual(GetFactionName(settlement.MapFaction), assignment.OwnerKingdomName))
+            {
+                return "Assigned settlement owner changed";
             }
 
             if (!party.IsActive)
@@ -339,6 +527,11 @@ namespace CalradiaStrategicMind.Strategic
                 return "Assigned party is in battle";
             }
 
+            if (settlement.MapFaction == null || party.MapFaction != settlement.MapFaction)
+            {
+                return "Assigned party faction no longer matches settlement owner";
+            }
+
             if (party.BesiegedSettlement != null && !NamesEqual(GetSettlementName(party.BesiegedSettlement), assignment.SettlementName))
             {
                 return "Assigned party is besieging another settlement";
@@ -350,6 +543,85 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             return null;
+        }
+
+        private static string GetCompletedAssignmentReason(
+            DefenseEvaluationSnapshot snapshot,
+            CsmDefenseAssignment assignment,
+            MobileParty party,
+            Settlement settlement)
+        {
+            if (settlement != null && settlement.SiegeEvent == null)
+            {
+                return "Settlement no longer under siege";
+            }
+
+            if (snapshot.CoverageReport.IsDefenseEnough)
+            {
+                return "Settlement defense coverage is enough";
+            }
+
+            if (!IsAssignmentThreatStillValid(snapshot))
+            {
+                return "Settlement no longer has urgent defense threat";
+            }
+
+            if (party != null && settlement != null)
+            {
+                if (party.CurrentSettlement == settlement || party.Position.Distance(settlement.Position) <= DefenseAssignmentSettings.DefenseAssignmentArrivedDistance)
+                {
+                    return "Assigned party arrived at settlement";
+                }
+
+                if (party.DefaultBehavior == AiBehavior.DefendSettlement && party.TargetSettlement == settlement)
+                {
+                    return "Assigned party is defending settlement";
+                }
+            }
+
+            return null;
+        }
+
+        private static string GetProgressExpiredReason(CsmDefenseAssignment assignment, MobileParty party, Settlement settlement, int observationTick)
+        {
+            if (assignment == null || party == null || settlement == null)
+            {
+                return null;
+            }
+
+            var assignmentAge = observationTick - assignment.CommandStartTick;
+            if (assignmentAge < DefenseAssignmentSettings.DefenseAssignmentGraceTicks
+                || assignmentAge < DefenseAssignmentSettings.MinimumTicksBeforeDefenseProgressExpiry)
+            {
+                return null;
+            }
+
+            var distance = party.Position.Distance(settlement.Position);
+            if (assignment.LastDistanceToSettlement < 0f)
+            {
+                assignment.LastDistanceToSettlement = distance;
+                assignment.LastProgressTick = observationTick;
+                return null;
+            }
+
+            if (observationTick - assignment.LastProgressTick < GetProgressCheckEveryTicks())
+            {
+                return null;
+            }
+
+            if (assignment.LastDistanceToSettlement - distance >= DefenseAssignmentSettings.DefenseAssignmentProgressMinimumDistanceDelta)
+            {
+                assignment.LastDistanceToSettlement = distance;
+                assignment.LastProgressTick = observationTick;
+                return null;
+            }
+
+            if (party.TargetSettlement != null && party.TargetSettlement != settlement)
+            {
+                return "Assigned party moved to another target";
+            }
+
+            return "Assigned party is not making progress toward settlement";
         }
 
         private static bool IsExpiredAssignment(CsmDefenseAssignment assignment, int observationTick)
@@ -369,14 +641,19 @@ namespace CalradiaStrategicMind.Strategic
                 || snapshot.CoverageReport.HasArmyPresence;
         }
 
-        private static bool ShouldReassertAssignment(CsmDefenseAssignment assignment, int observationTick)
+        private static bool ShouldReassertAssignment(CsmDefenseAssignment assignment, MobileParty party, Settlement settlement, int observationTick)
         {
             if (assignment.ReassertionCount >= GetMaxReassertionsPerAssignment())
             {
                 return false;
             }
 
-            return observationTick - assignment.LastCommandTick >= GetReassertCommandEveryTicks();
+            if (party == null || settlement == null || party.TargetSettlement == settlement)
+            {
+                return false;
+            }
+
+            return observationTick - assignment.LastCommandTick >= DirectDefenseCommandSettings.DefenseCommandCooldownTicks;
         }
 
         private static string GetClosedAssignmentStatus(CsmDefenseAssignment assignment, int observationTick, string reason)
@@ -407,6 +684,11 @@ namespace CalradiaStrategicMind.Strategic
             return coverageReport.DefenseCoverageRatio < DefenseActionThresholdSettings.ReinforcementCoverageRatioThreshold;
         }
 
+        private static bool IsCriticalCoverage(DefenseCoverageReport coverageReport)
+        {
+            return coverageReport.DefenseCoverageRatio <= DefenseActionThresholdSettings.CriticalCoverageRatio;
+        }
+
         private int GetSettlementCommandCount(string settlementName)
         {
             int count;
@@ -435,9 +717,16 @@ namespace CalradiaStrategicMind.Strategic
 
         private static int GetMaxAssignmentAgeTicks()
         {
-            return DefenseAssignmentSettings.MaxAssignmentAgeTicks < 0
+            return DefenseAssignmentSettings.MaxDefenseAssignmentAgeTicks < 0
                 ? 0
-                : DefenseAssignmentSettings.MaxAssignmentAgeTicks;
+                : DefenseAssignmentSettings.MaxDefenseAssignmentAgeTicks;
+        }
+
+        private static int GetProgressCheckEveryTicks()
+        {
+            return DefenseAssignmentSettings.DefenseAssignmentProgressCheckEveryTicks < 1
+                ? 1
+                : DefenseAssignmentSettings.DefenseAssignmentProgressCheckEveryTicks;
         }
 
         private static int GetReassertCommandEveryTicks()
@@ -557,10 +846,37 @@ namespace CalradiaStrategicMind.Strategic
             bool commandApplied,
             string reason)
         {
+            return CreateReport(
+                observationTick,
+                settlementName,
+                "unknown",
+                "UrgentDefense",
+                candidateName,
+                PartyObservationCategory.Unknown,
+                false,
+                commandApplied,
+                reason);
+        }
+
+        private static DirectDefenseCommandReport CreateReport(
+            int observationTick,
+            string settlementName,
+            string ownerKingdomName,
+            string commandType,
+            string candidateName,
+            PartyObservationCategory candidateCategory,
+            bool isAllowed,
+            bool commandApplied,
+            string reason)
+        {
             return new DirectDefenseCommandReport(
                 observationTick,
                 string.IsNullOrWhiteSpace(settlementName) ? "unknown" : settlementName,
+                string.IsNullOrWhiteSpace(ownerKingdomName) ? "unknown" : ownerKingdomName,
+                string.IsNullOrWhiteSpace(commandType) ? "UrgentDefense" : commandType,
                 string.IsNullOrWhiteSpace(candidateName) ? "none" : candidateName,
+                candidateCategory,
+                isAllowed,
                 commandApplied,
                 reason);
         }
@@ -595,6 +911,11 @@ namespace CalradiaStrategicMind.Strategic
             return settlement.Name.ToString();
         }
 
+        private static string GetFactionName(IFaction faction)
+        {
+            return faction?.Name == null ? "unknown" : faction.Name.ToString();
+        }
+
         private static bool NamesEqual(string left, string right)
         {
             return string.Equals(
@@ -614,13 +935,21 @@ namespace CalradiaStrategicMind.Strategic
         public DirectDefenseCommandReport(
             int observationTick,
             string settlementName,
+            string ownerKingdomName,
+            string commandType,
             string candidateName,
+            PartyObservationCategory candidateCategory,
+            bool isAllowed,
             bool commandApplied,
             string reason)
         {
             ObservationTick = observationTick;
             SettlementName = settlementName;
+            OwnerKingdomName = ownerKingdomName;
+            CommandType = commandType;
             CandidateName = candidateName;
+            CandidateCategory = candidateCategory;
+            IsAllowed = isAllowed;
             CommandApplied = commandApplied;
             Reason = reason;
         }
@@ -629,10 +958,31 @@ namespace CalradiaStrategicMind.Strategic
 
         public string SettlementName { get; private set; }
 
+        public string OwnerKingdomName { get; private set; }
+
+        public string CommandType { get; private set; }
+
         public string CandidateName { get; private set; }
+
+        public PartyObservationCategory CandidateCategory { get; private set; }
+
+        public bool IsAllowed { get; private set; }
 
         public bool CommandApplied { get; private set; }
 
         public string Reason { get; private set; }
+
+        public DefenseCommandReport ToDefenseCommandReport()
+        {
+            return new DefenseCommandReport(
+                SettlementName,
+                OwnerKingdomName,
+                CommandType,
+                CandidateName,
+                CandidateCategory,
+                IsAllowed,
+                CommandApplied,
+                CommandApplied ? "Urgent defense command executed" : Reason);
+        }
     }
 }
