@@ -80,6 +80,12 @@ namespace CalradiaStrategicMind.Settings
         public static float AlreadyBesiegedPenalty = 100f;
         public static float ActiveDefenseTargetPenalty = 100f;
         public static float DeepEnemyTerritoryPenalty = 35f;
+        public static float MaxOverextensionPenalty = 80f;
+        public static float MinimumFriendlySupportForExtendedAttack = 500f;
+        public static float DangerousNearbyEnemyArmyRatio = 0.75f;
+        public static float IsolatedTargetPenalty = 35f;
+        public static float ExistingFriendlySiegePenalty = 60f;
+        public static int RecentlyFailedTargetCooldownTicks = 10;
 
         public static float MaxNearbyEnemyArmyScanDistance = 80f;
         public static float MaxNearbyFriendlySupportScanDistance = 60f;

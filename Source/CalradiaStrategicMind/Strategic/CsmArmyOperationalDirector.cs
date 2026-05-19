@@ -28,6 +28,7 @@ namespace CalradiaStrategicMind.Strategic
             CsmArmyAssignmentRegistry registry,
             CsmDefenseAssignmentRegistry defenseRegistry,
             CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies,
+            CsmRecentlyFailedArmyTargetRegistry recentlyFailedTargets,
             CsmArmyLifecycleReport lifecycle,
             int observationTick,
             bool isNewCommandCooldownActive)
@@ -45,7 +46,7 @@ namespace CalradiaStrategicMind.Strategic
                 var assignment = registry.GetActiveAssignmentForArmy(snapshot.ArmyId);
                 if (assignment != null)
                 {
-                    ProcessAssignment(snapshot, objective, assignment, registry, defenseRegistry, recentlyReleasedArmies, lifecycle, defenseSnapshots, observationTick, reports);
+                    ProcessAssignment(snapshot, objective, assignment, registry, defenseRegistry, recentlyReleasedArmies, recentlyFailedTargets, lifecycle, defenseSnapshots, observationTick, reports);
                     continue;
                 }
 
@@ -96,15 +97,25 @@ namespace CalradiaStrategicMind.Strategic
                     continue;
                 }
 
-                if (TryRedirectBadSiege(snapshot, objective, defenseSnapshots, registry, recentlyReleasedArmies, _targetScorer, _badSiegeEvaluator, observationTick, reports))
+                if (TryRedirectBadSiege(snapshot, objective, defenseSnapshots, registry, defenseRegistry, recentlyReleasedArmies, recentlyFailedTargets, _targetScorer, _badSiegeEvaluator, observationTick, reports))
                 {
                     continue;
                 }
 
-                TryAssignAttackTarget(snapshot, objective, defenseSnapshots, registry, defenseRegistry, _targetScorer, observationTick, reports);
+                TryAssignAttackTarget(snapshot, objective, defenseSnapshots, registry, defenseRegistry, recentlyFailedTargets, _targetScorer, observationTick, reports);
             }
 
             return reports;
+        }
+
+        public void ResetTargetScoringSummary()
+        {
+            _targetScorer.ResetSummary();
+        }
+
+        public CsmArmyTargetScoringSummary GetTargetScoringSummary()
+        {
+            return _targetScorer.SnapshotSummary();
         }
 
         private void ProcessAssignment(
@@ -114,6 +125,7 @@ namespace CalradiaStrategicMind.Strategic
             CsmArmyAssignmentRegistry registry,
             CsmDefenseAssignmentRegistry defenseRegistry,
             CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies,
+            CsmRecentlyFailedArmyTargetRegistry recentlyFailedTargets,
             CsmArmyLifecycleReport lifecycle,
             List<DefenseEvaluationSnapshot> defenseSnapshots,
             int observationTick,
@@ -121,7 +133,7 @@ namespace CalradiaStrategicMind.Strategic
         {
             var target = FindSettlementByIdOrName(assignment.TargetSettlementId, assignment.TargetSettlementName);
             var mission = _missionTracker.Evaluate(snapshot, objective, assignment, target, _badSiegeEvaluator, _targetScorer, defenseSnapshots, registry, observationTick);
-            if (mission != null && mission.Handled && TryHandleMissionState(snapshot, objective, assignment, registry, defenseRegistry, recentlyReleasedArmies, lifecycle, defenseSnapshots, observationTick, reports, mission.State, target))
+            if (mission != null && mission.Handled && TryHandleMissionState(snapshot, objective, assignment, registry, defenseRegistry, recentlyReleasedArmies, recentlyFailedTargets, lifecycle, defenseSnapshots, observationTick, reports, mission.State, target))
             {
                 return;
             }
@@ -130,7 +142,7 @@ namespace CalradiaStrategicMind.Strategic
             if (!string.IsNullOrWhiteSpace(invalidReason))
             {
                 var status = GetClosedStatus(assignment, observationTick, invalidReason);
-                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, status, invalidReason, GetReleaseType(status), observationTick);
+                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, recentlyFailedTargets, status, invalidReason, GetReleaseType(status), observationTick);
                 _missionTracker.CloseState(assignment, ToMissionStatus(status), invalidReason, observationTick);
                 reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, false, status, invalidReason));
                 return;
@@ -144,7 +156,7 @@ namespace CalradiaStrategicMind.Strategic
                     var syncTarget = FindSettlementByIdOrName(assignment.TargetSettlementId, assignment.TargetSettlementName);
                     if (_missionTracker.HasExceededSyncAttempts(assignment))
                     {
-                        CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, "Invalid", "Mission invalid because objective sync attempts were exceeded", "Invalid", observationTick);
+                        CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, recentlyFailedTargets, "Invalid", "Mission invalid because objective sync attempts were exceeded", "Invalid", observationTick);
                         _missionTracker.CloseState(assignment, CsmArmyMissionStatus.Invalid, "Mission invalid because objective sync attempts were exceeded", observationTick);
                         reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, false, "Invalid", "Mission invalid because objective sync attempts were exceeded"));
                         return;
@@ -181,7 +193,7 @@ namespace CalradiaStrategicMind.Strategic
             target = FindSettlementByIdOrName(assignment.TargetSettlementId, assignment.TargetSettlementName);
             if (target == null)
             {
-                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, "Invalid", "Army assignment target not found", "Invalid", observationTick);
+                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, recentlyFailedTargets, "Invalid", "Army assignment target not found", "Invalid", observationTick);
                 _missionTracker.CloseState(assignment, CsmArmyMissionStatus.Invalid, "Army assignment target not found", observationTick);
                 reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, false, "Invalid", "Army assignment target not found"));
                 return;
@@ -208,6 +220,7 @@ namespace CalradiaStrategicMind.Strategic
             CsmArmyAssignmentRegistry registry,
             CsmDefenseAssignmentRegistry defenseRegistry,
             CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies,
+            CsmRecentlyFailedArmyTargetRegistry recentlyFailedTargets,
             CsmArmyLifecycleReport lifecycle,
             List<DefenseEvaluationSnapshot> defenseSnapshots,
             int observationTick,
@@ -222,12 +235,12 @@ namespace CalradiaStrategicMind.Strategic
 
             if (state.CurrentState == CsmArmyMissionStatus.Completed)
             {
-                if (TryHandleCompletedMission(snapshot, objective, assignment, registry, defenseRegistry, recentlyReleasedArmies, defenseSnapshots, observationTick, reports, state))
+                if (TryHandleCompletedMission(snapshot, objective, assignment, registry, defenseRegistry, recentlyReleasedArmies, recentlyFailedTargets, defenseSnapshots, observationTick, reports, state))
                 {
                     return true;
                 }
 
-                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, "Completed", state.Reason, "Completed", observationTick);
+                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, recentlyFailedTargets, "Completed", state.Reason, "Completed", observationTick);
                 _missionTracker.CloseState(assignment, CsmArmyMissionStatus.Completed, state.Reason, observationTick);
                 reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, false, "Completed", state.Reason));
                 return true;
@@ -239,7 +252,7 @@ namespace CalradiaStrategicMind.Strategic
                 || state.CurrentState == CsmArmyMissionStatus.ReleasedForRecovery)
             {
                 var status = state.CurrentState == CsmArmyMissionStatus.ActiveSiegeRedirectBlocked ? "Invalid" : state.CurrentState.ToString();
-                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, status, state.Reason, GetReleaseType(status), observationTick);
+                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, recentlyFailedTargets, status, state.Reason, GetReleaseType(status), observationTick);
                 _missionTracker.CloseState(assignment, state.CurrentState, state.Reason, observationTick);
                 reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, false, status, state.Reason));
                 return true;
@@ -255,17 +268,17 @@ namespace CalradiaStrategicMind.Strategic
 
             if (state.CurrentState == CsmArmyMissionStatus.ObjectiveMismatch)
             {
-                return TryHandleMissionObjectiveMismatch(snapshot, objective, assignment, registry, recentlyReleasedArmies, lifecycle, observationTick, reports, target);
+                return TryHandleMissionObjectiveMismatch(snapshot, objective, assignment, registry, recentlyReleasedArmies, recentlyFailedTargets, lifecycle, observationTick, reports, target);
             }
 
             if (state.CurrentState == CsmArmyMissionStatus.Stalled)
             {
-                return TryHandleStalledMission(snapshot, assignment, registry, recentlyReleasedArmies, observationTick, reports, target);
+                return TryHandleStalledMission(snapshot, assignment, registry, recentlyReleasedArmies, recentlyFailedTargets, observationTick, reports, target);
             }
 
             if (state.CurrentState == CsmArmyMissionStatus.Unsafe)
             {
-                return TryHandleUnsafeMission(snapshot, objective, assignment, defenseSnapshots, registry, recentlyReleasedArmies, observationTick, reports);
+                return TryHandleUnsafeMission(snapshot, objective, assignment, defenseSnapshots, registry, defenseRegistry, recentlyReleasedArmies, recentlyFailedTargets, observationTick, reports);
             }
 
             return false;
@@ -278,6 +291,7 @@ namespace CalradiaStrategicMind.Strategic
             CsmArmyAssignmentRegistry registry,
             CsmDefenseAssignmentRegistry defenseRegistry,
             CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies,
+            CsmRecentlyFailedArmyTargetRegistry recentlyFailedTargets,
             List<DefenseEvaluationSnapshot> defenseSnapshots,
             int observationTick,
             List<CsmArmyDirectorReport> reports,
@@ -291,13 +305,13 @@ namespace CalradiaStrategicMind.Strategic
             const string waitingReason = "Army completed mission but has no active objective";
             _missionTracker.UpdateState(state, CsmArmyMissionStatus.WaitingAfterCompletedMission, waitingReason, observationTick);
 
-            var score = _targetScorer.FindBestTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry);
+            var score = _targetScorer.FindBestTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry, defenseRegistry, recentlyFailedTargets, observationTick);
             if (score == null)
             {
-                var rejected = _targetScorer.FindBestRejectedTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry);
+                var rejected = _targetScorer.FindBestRejectedTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry, defenseRegistry, recentlyFailedTargets, observationTick);
                 LogTargetRejection(observationTick, snapshot, rejected);
                 var releaseReason = "Army released because completed mission left it without valid objective";
-                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, "ReleasedForRecovery", releaseReason, "PostCompletionNoTarget", observationTick);
+                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, recentlyFailedTargets, "ReleasedForRecovery", releaseReason, "PostCompletionNoTarget", observationTick);
                 _missionTracker.CloseState(assignment, CsmArmyMissionStatus.ReleasedForRecovery, releaseReason, observationTick);
                 reports.Add(CreateReport(observationTick, snapshot, "PostCompletionRecovery", "none", false, "Released", releaseReason));
                 return true;
@@ -310,7 +324,7 @@ namespace CalradiaStrategicMind.Strategic
             if (defenseRegistry != null && defenseRegistry.HasActiveAssignmentForSettlement(targetId, targetName))
             {
                 const string blockedReason = "Post-completion target blocked because settlement has active CSM defense assignment";
-                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, "ReleasedForRecovery", blockedReason, "PostCompletionNoTarget", observationTick);
+                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, recentlyFailedTargets, "ReleasedForRecovery", blockedReason, "PostCompletionNoTarget", observationTick);
                 _missionTracker.CloseState(assignment, CsmArmyMissionStatus.ReleasedForRecovery, blockedReason, observationTick);
                 reports.Add(CreateReport(observationTick, snapshot, "PostCompletionRecovery", targetName, false, "Released", blockedReason));
                 return true;
@@ -319,7 +333,7 @@ namespace CalradiaStrategicMind.Strategic
             var conflict = new CsmAssignmentConflictChecker(registry, defenseRegistry).CheckPartyForNewArmyCommand(snapshot.LeaderParty, target);
             if (conflict.IsBlocked)
             {
-                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, "ReleasedForRecovery", conflict.Reason, "PostCompletionNoTarget", observationTick);
+                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, recentlyFailedTargets, "ReleasedForRecovery", conflict.Reason, "PostCompletionNoTarget", observationTick);
                 _missionTracker.CloseState(assignment, CsmArmyMissionStatus.ReleasedForRecovery, conflict.Reason, observationTick);
                 reports.Add(CreateReport(observationTick, snapshot, "PostCompletionRecovery", targetName, false, "Released", conflict.Reason));
                 return true;
@@ -365,6 +379,7 @@ namespace CalradiaStrategicMind.Strategic
             CsmArmyAssignment assignment,
             CsmArmyAssignmentRegistry registry,
             CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies,
+            CsmRecentlyFailedArmyTargetRegistry recentlyFailedTargets,
             CsmArmyLifecycleReport lifecycle,
             int observationTick,
             List<CsmArmyDirectorReport> reports,
@@ -382,7 +397,7 @@ namespace CalradiaStrategicMind.Strategic
                 const string releaseReason = "Released because vanilla repeatedly overrode CSM army objective";
                 var state = _missionTracker.GetOrCreateState(assignment);
                 _missionTracker.UpdateState(state, CsmArmyMissionStatus.RepeatedObjectiveMismatch, "Vanilla repeatedly overrode CSM army objective", observationTick);
-                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, "ReleasedForRecovery", releaseReason, "ReassertFailed", observationTick);
+                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, recentlyFailedTargets, "ReleasedForRecovery", releaseReason, "ReassertFailed", observationTick);
                 _missionTracker.CloseState(assignment, CsmArmyMissionStatus.ReleasedForRecovery, releaseReason, observationTick);
                 if (lifecycle != null)
                 {
@@ -395,7 +410,7 @@ namespace CalradiaStrategicMind.Strategic
 
             if (_missionTracker.HasExceededSyncAttempts(assignment))
             {
-                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, "Invalid", "Mission invalid because objective sync attempts were exceeded", "Invalid", observationTick);
+                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, recentlyFailedTargets, "Invalid", "Mission invalid because objective sync attempts were exceeded", "Invalid", observationTick);
                 _missionTracker.CloseState(assignment, CsmArmyMissionStatus.Invalid, "Mission invalid because objective sync attempts were exceeded", observationTick);
                 reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, false, "Invalid", "Mission invalid because objective sync attempts were exceeded"));
                 return true;
@@ -408,7 +423,7 @@ namespace CalradiaStrategicMind.Strategic
                 const string releaseReason = "Released because vanilla repeatedly overrode CSM army objective";
                 var state = _missionTracker.GetOrCreateState(assignment);
                 _missionTracker.UpdateState(state, CsmArmyMissionStatus.RepeatedObjectiveMismatch, "Vanilla repeatedly overrode CSM army objective", observationTick);
-                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, "ReleasedForRecovery", releaseReason, "ReassertFailed", observationTick);
+                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, recentlyFailedTargets, "ReleasedForRecovery", releaseReason, "ReassertFailed", observationTick);
                 _missionTracker.CloseState(assignment, CsmArmyMissionStatus.ReleasedForRecovery, releaseReason, observationTick);
                 if (lifecycle != null)
                 {
@@ -437,13 +452,14 @@ namespace CalradiaStrategicMind.Strategic
             CsmArmyAssignment assignment,
             CsmArmyAssignmentRegistry registry,
             CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies,
+            CsmRecentlyFailedArmyTargetRegistry recentlyFailedTargets,
             int observationTick,
             List<CsmArmyDirectorReport> reports,
             Settlement target)
         {
             if (_missionTracker.HasExceededRepathAttempts(assignment))
             {
-                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, "Expired", "Mission expired because army did not make progress toward assigned target", "Invalid", observationTick);
+                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, recentlyFailedTargets, "Expired", "Mission expired because army did not make progress toward assigned target", "Invalid", observationTick);
                 _missionTracker.CloseState(assignment, CsmArmyMissionStatus.Expired, "Mission expired because army did not make progress toward assigned target", observationTick);
                 reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, false, "Expired", "Mission expired because army did not make progress toward assigned target"));
                 return true;
@@ -473,7 +489,9 @@ namespace CalradiaStrategicMind.Strategic
             CsmArmyAssignment assignment,
             List<DefenseEvaluationSnapshot> defenseSnapshots,
             CsmArmyAssignmentRegistry registry,
+            CsmDefenseAssignmentRegistry defenseRegistry,
             CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies,
+            CsmRecentlyFailedArmyTargetRegistry recentlyFailedTargets,
             int observationTick,
             List<CsmArmyDirectorReport> reports)
         {
@@ -484,7 +502,7 @@ namespace CalradiaStrategicMind.Strategic
 
             if (_missionTracker.HasExceededRedirects(assignment))
             {
-                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, "ReleasedForRecovery", "Army released because repeated redirects failed to stabilize mission", "ReassertFailed", observationTick);
+                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, recentlyFailedTargets, "ReleasedForRecovery", "Army released because repeated redirects failed to stabilize mission", "ReassertFailed", observationTick);
                 _missionTracker.CloseState(assignment, CsmArmyMissionStatus.ReleasedForRecovery, "Army released because repeated redirects failed to stabilize mission", observationTick);
                 reports.Add(CreateReport(observationTick, snapshot, "ReleaseForRecovery", "none", false, "ReleasedForRecovery", "Army released because repeated redirects failed to stabilize mission"));
                 return true;
@@ -506,12 +524,12 @@ namespace CalradiaStrategicMind.Strategic
 
             var badSiege = _badSiegeEvaluator.Evaluate(snapshot, objective, defenseSnapshots, registry);
             LogBadSiegeEvaluation(observationTick, snapshot, badSiege);
-            var score = _targetScorer.FindBestTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry);
+            var score = _targetScorer.FindBestTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry, defenseRegistry, recentlyFailedTargets, observationTick);
             if (score == null)
             {
-                var rejected = _targetScorer.FindBestRejectedTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry);
+                var rejected = _targetScorer.FindBestRejectedTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry, defenseRegistry, recentlyFailedTargets, observationTick);
                 LogTargetRejection(observationTick, snapshot, rejected);
-                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, "ReleasedForRecovery", "Bad siege had no safe replacement target; released army from CSM control", "BadSiegeNoReplacement", observationTick);
+                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, recentlyFailedTargets, "ReleasedForRecovery", "Bad siege had no safe replacement target; released army from CSM control", "BadSiegeNoReplacement", observationTick);
                 _missionTracker.CloseState(assignment, CsmArmyMissionStatus.ReleasedForRecovery, "Bad siege had no safe replacement target; released army from CSM control", observationTick);
                 reports.Add(CreateReport(observationTick, snapshot, "ReleaseForRecovery", "none", false, "ReleasedForRecovery", "Bad siege had no safe replacement target; released army from CSM control"));
                 return true;
@@ -522,7 +540,7 @@ namespace CalradiaStrategicMind.Strategic
             var reason = "Redirected bad siege to better scored attack target: " + badSiege.Reason;
             var inheritedRedirectCount = _missionTracker.GetRedirectCount(assignment);
             var previousTargetName = assignment.TargetSettlementName;
-            CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, "ReleasedForRecovery", reason, "Invalid", observationTick);
+            CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, recentlyFailedTargets, "ReleasedForRecovery", reason, "Invalid", observationTick);
             _missionTracker.CloseState(assignment, CsmArmyMissionStatus.ReleasedForRecovery, reason, observationTick);
 
             CsmArmyAssignment newAssignment;
@@ -631,7 +649,9 @@ namespace CalradiaStrategicMind.Strategic
             CsmArmyObjectiveSnapshot objective,
             List<DefenseEvaluationSnapshot> defenseSnapshots,
             CsmArmyAssignmentRegistry registry,
+            CsmDefenseAssignmentRegistry defenseRegistry,
             CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies,
+            CsmRecentlyFailedArmyTargetRegistry recentlyFailedTargets,
             CsmArmyAttackTargetScorer targetScorer,
             CsmBadSiegeEvaluator badSiegeEvaluator,
             int tick,
@@ -649,15 +669,15 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             LogBadSiegeEvaluation(tick, snapshot, badSiege);
-            var score = targetScorer.FindBestTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry);
+            var score = targetScorer.FindBestTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry, defenseRegistry, recentlyFailedTargets, tick);
             if (score == null)
             {
-                var rejected = targetScorer.FindBestRejectedTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry);
+                var rejected = targetScorer.FindBestRejectedTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry, defenseRegistry, recentlyFailedTargets, tick);
                 LogTargetRejection(tick, snapshot, rejected);
                 var activeAssignment = registry.GetActiveAssignmentForArmy(snapshot.ArmyId);
                 if (activeAssignment != null)
                 {
-                    CloseAssignment(snapshot, activeAssignment, registry, recentlyReleasedArmies, "ReleasedForRecovery", "Bad siege released from CSM control", "BadSiegeNoReplacement", tick);
+                    CloseAssignment(snapshot, activeAssignment, registry, recentlyReleasedArmies, recentlyFailedTargets, "ReleasedForRecovery", "Bad siege released from CSM control", "BadSiegeNoReplacement", tick);
                 }
                 else
                 {
@@ -682,7 +702,7 @@ namespace CalradiaStrategicMind.Strategic
 
             if (!CanApplyAttackCommand(snapshot, assignment))
             {
-                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, "Invalid", "Attack command blocked because party is not a vanilla army leader", "Invalid", tick);
+                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, recentlyFailedTargets, "Invalid", "Attack command blocked because party is not a vanilla army leader", "Invalid", tick);
                 _missionTracker.CloseState(assignment, CsmArmyMissionStatus.Invalid, "Attack command blocked because party is not a vanilla army leader", tick);
                 reports.Add(CreateReport(tick, snapshot, "AttackSettlement", GetSettlementName(target), false, "Skipped", "Attack command blocked because party is not a vanilla army leader"));
                 return true;
@@ -690,7 +710,7 @@ namespace CalradiaStrategicMind.Strategic
 
             if (!TrySyncArmyAttackObjective(snapshot, assignment, target))
             {
-                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, "Invalid", "Redirect command failed because attack objective sync failed", "Invalid", tick);
+                CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, recentlyFailedTargets, "Invalid", "Redirect command failed because attack objective sync failed", "Invalid", tick);
                 _missionTracker.CloseState(assignment, CsmArmyMissionStatus.Invalid, "Redirect command failed because attack objective sync failed", tick);
                 reports.Add(CreateReport(tick, snapshot, "AttackSettlement", GetSettlementName(target), false, "Skipped", "Redirect command failed because attack objective sync failed"));
                 return true;
@@ -700,7 +720,7 @@ namespace CalradiaStrategicMind.Strategic
             return true;
         }
 
-        private static bool TryAssignAttackTarget(CsmArmySnapshot snapshot, CsmArmyObjectiveSnapshot objective, List<DefenseEvaluationSnapshot> defenseSnapshots, CsmArmyAssignmentRegistry registry, CsmDefenseAssignmentRegistry defenseRegistry, CsmArmyAttackTargetScorer targetScorer, int tick, List<CsmArmyDirectorReport> reports)
+        private static bool TryAssignAttackTarget(CsmArmySnapshot snapshot, CsmArmyObjectiveSnapshot objective, List<DefenseEvaluationSnapshot> defenseSnapshots, CsmArmyAssignmentRegistry registry, CsmDefenseAssignmentRegistry defenseRegistry, CsmRecentlyFailedArmyTargetRegistry recentlyFailedTargets, CsmArmyAttackTargetScorer targetScorer, int tick, List<CsmArmyDirectorReport> reports)
         {
             if (snapshot.TotalStrength < ArmyDirectorSettings.MinimumArmyStrengthForAttack)
             {
@@ -712,10 +732,10 @@ namespace CalradiaStrategicMind.Strategic
                 return false;
             }
 
-            var score = targetScorer.FindBestTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry);
+            var score = targetScorer.FindBestTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry, defenseRegistry, recentlyFailedTargets, tick);
             if (score == null)
             {
-                var rejected = targetScorer.FindBestRejectedTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry);
+                var rejected = targetScorer.FindBestRejectedTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry, defenseRegistry, recentlyFailedTargets, tick);
                 LogTargetRejection(tick, snapshot, rejected);
                 reports.Add(CreateReport(tick, snapshot, "AttackSettlement", "none", false, "Skipped", "No attack target passed Army Target Scoring for existing army"));
                 return false;
@@ -1056,12 +1076,27 @@ namespace CalradiaStrategicMind.Strategic
             string releaseType,
             int tick)
         {
+            CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, null, status, reason, releaseType, tick);
+        }
+
+        private static void CloseAssignment(
+            CsmArmySnapshot snapshot,
+            CsmArmyAssignment assignment,
+            CsmArmyAssignmentRegistry registry,
+            CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies,
+            CsmRecentlyFailedArmyTargetRegistry recentlyFailedTargets,
+            string status,
+            string reason,
+            string releaseType,
+            int tick)
+        {
             if (registry != null)
             {
                 registry.Close(assignment, status, reason);
             }
 
             MarkReleased(snapshot, recentlyReleasedArmies, tick, reason, releaseType, assignment == null ? "none" : assignment.TargetSettlementName);
+            MarkFailedTarget(snapshot, assignment, recentlyFailedTargets, tick, reason, releaseType);
         }
 
         private static void CloseAssignmentWithoutRelease(CsmArmyAssignment assignment, CsmArmyAssignmentRegistry registry, string status, string reason)
@@ -1096,6 +1131,43 @@ namespace CalradiaStrategicMind.Strategic
                 releaseType);
         }
 
+        private static void MarkFailedTarget(CsmArmySnapshot snapshot, CsmArmyAssignment assignment, CsmRecentlyFailedArmyTargetRegistry recentlyFailedTargets, int tick, string reason, string releaseType)
+        {
+            if (recentlyFailedTargets == null || assignment == null || !ShouldRememberFailedTarget(releaseType, reason))
+            {
+                return;
+            }
+
+            recentlyFailedTargets.MarkFailed(
+                snapshot.ArmyId,
+                snapshot.ArmyName,
+                snapshot.KingdomName,
+                assignment.TargetSettlementId,
+                assignment.TargetSettlementName,
+                tick,
+                reason,
+                releaseType);
+        }
+
+        private static bool ShouldRememberFailedTarget(string releaseType, string reason)
+        {
+            if (releaseType == "BadSiegeNoReplacement"
+                || releaseType == "ReassertFailed"
+                || releaseType == "Invalid")
+            {
+                return true;
+            }
+
+            if (reason == "Released because vanilla repeatedly overrode CSM army objective"
+                || reason == "Army released because repeated redirects failed to stabilize mission"
+                || reason == "Mission expired because army did not make progress toward assigned target")
+            {
+                return true;
+            }
+
+            return false;
+        }
+
         private static string GetReleaseType(string status)
         {
             if (status == "Completed")
@@ -1119,7 +1191,7 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             CsmLogger.Info(
-                $"Observed CSM army target score: tick={tick}, kingdom='{snapshot.KingdomName}', army='{snapshot.ArmyName}', selectedTarget='{score.TargetName}', score={score.Score:0.00}, distance={score.Distance:0.00}, distanceLimit={score.DistanceLimit:0.00}, targetDefense={score.TargetDefenseStrength:0.00}, estimatedAttackStrength={score.EstimatedAttackStrength:0.00}, strengthRatio={score.StrengthRatio:0.00}, nearbyEnemyArmyStrength={score.NearbyEnemyArmyStrength:0.00}, nearbyFriendlySupportStrength={score.NearbyFriendlySupportStrength:0.00}, isFrontline={score.IsFrontlineCandidate}, extendedFrontline={score.UsesExtendedFrontlineRule}, reason='{score.Reason}'");
+                $"Observed CSM army target score: tick={tick}, kingdom='{snapshot.KingdomName}', army='{snapshot.ArmyName}', selectedTarget='{score.TargetName}', score={score.Score:0.00}, strategicValue={score.StrategicValueScore:0.00}, frontlineScore={score.FrontlineScore:0.00}, distanceScore={score.DistanceScore:0.00}, strengthRatioScore={score.StrengthRatioScore:0.00}, friendlySupportScore={score.NearbyFriendlySupportScore:0.00}, enemyThreatPenalty={score.NearbyEnemyPenalty:0.00}, overextensionPenalty={score.OverextensionPenalty:0.00}, recentlyFailedPenalty={score.RecentlyFailedTargetPenalty:0.00}, reason='{score.Reason}'");
         }
 
         private static void LogTargetRejection(int tick, CsmArmySnapshot snapshot, CsmArmyAttackTargetScore score)
@@ -1130,7 +1202,7 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             CsmLogger.Info(
-                $"Observed CSM army target rejection: tick={tick}, kingdom='{snapshot.KingdomName}', army='{snapshot.ArmyName}', topRejectedTarget='{score.TargetName}', score={score.Score:0.00}, distance={score.Distance:0.00}, distanceLimit={score.DistanceLimit:0.00}, targetDefense={score.TargetDefenseStrength:0.00}, estimatedAttackStrength={score.EstimatedAttackStrength:0.00}, strengthRatio={score.StrengthRatio:0.00}, nearbyEnemyArmyStrength={score.NearbyEnemyArmyStrength:0.00}, nearbyFriendlySupportStrength={score.NearbyFriendlySupportStrength:0.00}, isFrontline={score.IsFrontlineCandidate}, extendedFrontline={score.UsesExtendedFrontlineRule}, reason='{score.Reason}'");
+                $"Observed CSM army target rejection: tick={tick}, kingdom='{snapshot.KingdomName}', army='{snapshot.ArmyName}', topRejectedTarget='{score.TargetName}', score={score.Score:0.00}, hardRejectReason='{score.HardRejectReason}', strategicValue={score.StrategicValueScore:0.00}, distance={score.Distance:0.00}, strengthRatio={score.StrengthRatio:0.00}, nearbyEnemyArmyStrength={score.NearbyEnemyArmyStrength:0.00}, nearbyFriendlySupportStrength={score.NearbyFriendlySupportStrength:0.00}, reason='{score.Reason}'");
         }
 
         private static void LogBadSiegeEvaluation(int tick, CsmArmySnapshot snapshot, CsmBadSiegeEvaluation evaluation)

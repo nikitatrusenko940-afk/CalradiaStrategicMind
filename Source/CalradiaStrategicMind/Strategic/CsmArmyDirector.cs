@@ -14,6 +14,7 @@ namespace CalradiaStrategicMind.Strategic
         private readonly CsmArmyOperationalDirector _operationalDirector;
         private readonly CsmArmyFormationDirector _formationDirector;
         private readonly CsmRecentlyReleasedArmyRegistry _recentlyReleasedArmies;
+        private readonly CsmRecentlyFailedArmyTargetRegistry _recentlyFailedTargets;
         private int _lastCommandTick;
 
         public CsmArmyDirector()
@@ -23,6 +24,7 @@ namespace CalradiaStrategicMind.Strategic
             _operationalDirector = new CsmArmyOperationalDirector();
             _formationDirector = new CsmArmyFormationDirector();
             _recentlyReleasedArmies = new CsmRecentlyReleasedArmyRegistry();
+            _recentlyFailedTargets = new CsmRecentlyFailedArmyTargetRegistry();
             _lastCommandTick = -9999;
         }
 
@@ -42,7 +44,9 @@ namespace CalradiaStrategicMind.Strategic
             var snapshots = _snapshotBuilder.Build();
             var isCommandCooldownActive = observationTick - _lastCommandTick < GetCooldownTicks();
             var lifecycle = new CsmArmyLifecycleReport();
-            var operationalReports = _operationalDirector.Execute(snapshots, defenseSnapshots, _assignmentRegistry, defenseRegistry, _recentlyReleasedArmies, lifecycle, observationTick, isCommandCooldownActive);
+            _operationalDirector.ResetTargetScoringSummary();
+            _formationDirector.ResetTargetScoringSummary();
+            var operationalReports = _operationalDirector.Execute(snapshots, defenseSnapshots, _assignmentRegistry, defenseRegistry, _recentlyReleasedArmies, _recentlyFailedTargets, lifecycle, observationTick, isCommandCooldownActive);
             AddReports(reports, operationalReports);
 
             if (isCommandCooldownActive)
@@ -51,7 +55,7 @@ namespace CalradiaStrategicMind.Strategic
             }
             else
             {
-                var formationReports = _formationDirector.Execute(snapshots, defenseSnapshots, _assignmentRegistry, defenseRegistry, _recentlyReleasedArmies, lifecycle, observationTick);
+                var formationReports = _formationDirector.Execute(snapshots, defenseSnapshots, _assignmentRegistry, defenseRegistry, _recentlyReleasedArmies, _recentlyFailedTargets, lifecycle, observationTick);
                 AddReports(reports, formationReports);
             }
 
@@ -60,6 +64,7 @@ namespace CalradiaStrategicMind.Strategic
                 _lastCommandTick = observationTick;
             }
 
+            LogTargetScoringSummary(observationTick);
             LogLifecycle(observationTick, lifecycle);
             return reports;
         }
@@ -228,6 +233,20 @@ namespace CalradiaStrategicMind.Strategic
 
             CsmLogger.Info(
                 $"Observed CSM army lifecycle: tick={observationTick}, recentlyReleasedArmies={_recentlyReleasedArmies.CountActive(observationTick)}, releaseCooldownBlocks={lifecycle.ReleaseCooldownBlocks}, objectiveMismatchReleases={lifecycle.ObjectiveMismatchReleases}, duplicateReleaseReportsSuppressed={lifecycle.DuplicateReleaseReportsSuppressed}, reason='Army lifecycle snapshot'");
+        }
+
+        private void LogTargetScoringSummary(int observationTick)
+        {
+            if (!ArmyDirectorSettings.EnableArmyDirectorLogs)
+            {
+                return;
+            }
+
+            var summary = new CsmArmyTargetScoringSummary();
+            summary.Add(_operationalDirector.GetTargetScoringSummary());
+            summary.Add(_formationDirector.GetTargetScoringSummary());
+            CsmLogger.Info(
+                $"Observed CSM army target scoring summary: tick={observationTick}, evaluatedTargets={summary.EvaluatedTargets}, selectedTargets={summary.SelectedTargets}, hardRejectedTargets={summary.HardRejectedTargets}, irrelevantRejectedTargets={summary.IrrelevantRejectedTargets}, tacticalRejectedTargets={summary.TacticalRejectedTargets}, rejectedActiveDefenseTargets={summary.RejectedActiveDefenseTargets}, rejectedOverextendedTargets={summary.RejectedOverextendedTargets}, rejectedLowStrengthTargets={summary.RejectedLowStrengthTargets}, recentlyFailedTargetPenalties={summary.RecentlyFailedTargetPenalties}, reason='Army target scoring v2 snapshot'");
         }
     }
 }
