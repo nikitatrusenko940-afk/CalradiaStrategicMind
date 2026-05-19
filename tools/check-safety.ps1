@@ -20,6 +20,8 @@ $forbiddenPatterns = @(
     "SetMoveBesiegeSettlement",
     "SetTargetSettlement",
     "SetPartyObjective",
+    "AiBehaviorObject =",
+    "ArmyType =",
     "CreateArmy",
     "GatherArmyAction",
     "DisbandArmyAction",
@@ -68,6 +70,15 @@ $armyDirectorAllowedPatterns = @(
     "CreateArmy"
 )
 
+$armyObjectiveSyncAllowedPaths = @(
+    ".\Source\CalradiaStrategicMind\Strategic\CsmArmyOperationalDirector.cs",
+    ".\Source\CalradiaStrategicMind\Strategic\CsmArmyObjectiveSyncController.cs"
+)
+$armyObjectiveSyncAllowedPatterns = @(
+    "AiBehaviorObject =",
+    "ArmyType ="
+)
+
 function Test-IsAllowedFinding {
     param(
         [string]$Path,
@@ -101,6 +112,12 @@ function Test-IsAllowedFinding {
         return $true
     }
 
+    if ($AllowArmyDirector -and
+        $armyObjectiveSyncAllowedPaths -contains $Path -and
+        $armyObjectiveSyncAllowedPatterns -contains $Pattern) {
+        return $true
+    }
+
     return $false
 }
 
@@ -119,7 +136,8 @@ $findings = @()
 foreach ($file in $files) {
     foreach ($pattern in $forbiddenPatterns) {
         $escapedPattern = [regex]::Escape($pattern)
-        $matches = Select-String -LiteralPath $file.FullName -Pattern "(?<![A-Za-z0-9_])$escapedPattern(?![A-Za-z0-9_])"
+        $matchPattern = if ($pattern.EndsWith(" =")) { "(?<![A-Za-z0-9_])$escapedPattern" } else { "(?<![A-Za-z0-9_])$escapedPattern(?![A-Za-z0-9_])" }
+        $matches = Select-String -LiteralPath $file.FullName -Pattern $matchPattern
         foreach ($match in $matches) {
             $relativePath = Resolve-Path -LiteralPath $match.Path -Relative
             $line = $match.Line.Trim()
