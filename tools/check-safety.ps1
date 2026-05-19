@@ -1,6 +1,7 @@
 param(
     [switch]$AllowExperimentalAi,
-    [switch]$AllowDirectDefenseCommand
+    [switch]$AllowDirectDefenseCommand,
+    [switch]$AllowArmyDirector
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,8 +20,10 @@ $forbiddenPatterns = @(
     "SetMoveBesiegeSettlement",
     "SetTargetSettlement",
     "SetPartyObjective",
+    "CreateArmy",
     "GatherArmyAction",
     "DisbandArmyAction",
+    "DisbandArmy",
     "SiegeEventManager.StartSiegeEvent",
     "LiftSiegeAction",
     "Harmony",
@@ -53,6 +56,18 @@ $directDefenseCommandAllowedPatterns = @(
     "SetMoveDefendSettlement"
 )
 
+$armyDirectorAllowedPaths = @(
+    ".\Source\CalradiaStrategicMind\Strategic\CsmArmyDirector.cs",
+    ".\Source\CalradiaStrategicMind\Strategic\CsmArmyFormationDirector.cs",
+    ".\Source\CalradiaStrategicMind\Strategic\CsmArmyOperationalDirector.cs"
+)
+$armyDirectorAllowedPatterns = @(
+    "SetMoveDefendSettlement",
+    "SetMoveBesiegeSettlement",
+    "SetMoveGoToSettlement",
+    "CreateArmy"
+)
+
 function Test-IsAllowedFinding {
     param(
         [string]$Path,
@@ -77,6 +92,12 @@ function Test-IsAllowedFinding {
     if ($AllowDirectDefenseCommand -and
         $Path -eq $directDefenseCommandAllowedPath -and
         $directDefenseCommandAllowedPatterns -contains $Pattern) {
+        return $true
+    }
+
+    if ($AllowArmyDirector -and
+        $armyDirectorAllowedPaths -contains $Path -and
+        $armyDirectorAllowedPatterns -contains $Pattern) {
         return $true
     }
 

@@ -28,6 +28,7 @@ namespace CalradiaStrategicMind.Behaviors
         private readonly DefenseControllerSafetyGuard _defenseControllerSafetyGuard;
         private readonly DefenseCommandInterface _defenseCommandInterface;
         private readonly DirectDefenseCommandController _directDefenseCommandController;
+        private readonly CsmArmyDirector _armyDirector;
         private readonly DefenseScoreSimulator _defenseScoreSimulator;
         private readonly DefenseScoreSimulationSummaryBuilder _defenseScoreSimulationSummaryBuilder;
         private readonly ExperimentalDefenseScoreInfluenceRegistry _experimentalDefenseScoreInfluenceRegistry;
@@ -50,6 +51,7 @@ namespace CalradiaStrategicMind.Behaviors
             _defenseControllerSafetyGuard = new DefenseControllerSafetyGuard();
             _defenseCommandInterface = new DefenseCommandInterface();
             _directDefenseCommandController = new DirectDefenseCommandController();
+            _armyDirector = new CsmArmyDirector();
             _defenseScoreSimulator = new DefenseScoreSimulator();
             _defenseScoreSimulationSummaryBuilder = new DefenseScoreSimulationSummaryBuilder();
             _experimentalDefenseScoreInfluenceRegistry = new ExperimentalDefenseScoreInfluenceRegistry();
@@ -205,6 +207,7 @@ namespace CalradiaStrategicMind.Behaviors
 
             var observedCount = 0;
             var checkedCount = 0;
+            var defenseSnapshots = new List<DefenseEvaluationSnapshot>();
             _dryRunDefenseReportAggregator.BeginTick(_observationTick);
             _defenseScoreSimulationSummaryBuilder.BeginTick(_observationTick);
             _experimentalDefenseScoreInfluenceRegistry.BeginTick(_observationTick);
@@ -222,7 +225,7 @@ namespace CalradiaStrategicMind.Behaviors
                     continue;
                 }
 
-                if (ObserveDefenseSettlement(settlement, null))
+                if (ObserveDefenseSettlement(settlement, null, defenseSnapshots))
                 {
                     observedSettlementNames.Add(GetSettlementName(settlement));
                 }
@@ -242,7 +245,7 @@ namespace CalradiaStrategicMind.Behaviors
                     continue;
                 }
 
-                if (ObserveDefenseSettlement(settlement, snapshot))
+                if (ObserveDefenseSettlement(settlement, snapshot, defenseSnapshots))
                 {
                     observedSettlementNames.Add(GetSettlementName(settlement));
                     observedCount++;
@@ -264,7 +267,7 @@ namespace CalradiaStrategicMind.Behaviors
                     continue;
                 }
 
-                if (ObserveDefenseSettlement(settlement, null))
+                if (ObserveDefenseSettlement(settlement, null, defenseSnapshots))
                 {
                     observedSettlementNames.Add(GetSettlementName(settlement));
                     observedCount++;
@@ -288,9 +291,11 @@ namespace CalradiaStrategicMind.Behaviors
                     LogDefenseScoreSimulationSummary(scoreSimulationSummary);
                 }
             }
+
+            ObserveArmies(defenseSnapshots);
         }
 
-        private bool ObserveDefenseSettlement(Settlement settlement, DefenseEvaluationSnapshot? existingSnapshot)
+        private bool ObserveDefenseSettlement(Settlement settlement, DefenseEvaluationSnapshot? existingSnapshot, List<DefenseEvaluationSnapshot> defenseSnapshots)
         {
             if (!DefenseDiagnosticsSettings.EnableDefenseDiagnostics)
             {
@@ -300,6 +305,11 @@ namespace CalradiaStrategicMind.Behaviors
             var snapshot = existingSnapshot.HasValue
                 ? existingSnapshot.Value
                 : _defenseEvaluationSnapshotBuilder.Build(settlement, MaxDefenseCandidatesPerSettlement);
+            if (defenseSnapshots != null)
+            {
+                defenseSnapshots.Add(snapshot);
+            }
+
             if (DefenseDiagnosticsSettings.EnableVerboseDefenseLogs)
             {
                 LogSettlementThreat(snapshot.ThreatReport);
@@ -391,6 +401,43 @@ namespace CalradiaStrategicMind.Behaviors
             }
 
             return true;
+        }
+
+        private void ObserveArmies(List<DefenseEvaluationSnapshot> defenseSnapshots)
+        {
+            if (!ArmyDirectorSettings.EnableArmyDirector)
+            {
+                return;
+            }
+
+            var reports = _armyDirector.Evaluate(defenseSnapshots, _observationTick);
+            if (!ArmyDirectorSettings.EnableArmyDirectorLogs || reports == null)
+            {
+                return;
+            }
+
+            for (var index = 0; index < reports.Count; index++)
+            {
+                var report = reports[index];
+                if (!ShouldLogArmyDirectorReport(report))
+                {
+                    continue;
+                }
+
+                CsmLogger.Info(
+                    $"Observed CSM army director: tick={report.ObservationTick}, army='{report.ArmyName}', kingdom='{report.KingdomName}', objective='{report.Objective}', target='{report.TargetName}', commandApplied={report.CommandApplied}, status='{report.Status}', reason='{report.Reason}'");
+            }
+        }
+
+        private static bool ShouldLogArmyDirectorReport(CsmArmyDirectorReport report)
+        {
+            return report.CommandApplied
+                || report.Status == "Created"
+                || report.Status == "Reasserted"
+                || report.Status == "Completed"
+                || report.Status == "Invalid"
+                || report.Status == "Expired"
+                || report.Status == "Skipped";
         }
 
         private static bool ShouldObserveSettlement(Settlement settlement)
