@@ -54,6 +54,45 @@ namespace CalradiaStrategicMind.Strategic
             return _assignmentRegistry.CountActiveAssignments();
         }
 
+        public bool ReassertDefenseAssignment(MobileParty party, CsmDefenseAssignment assignment, int observationTick, out string reason)
+        {
+            var localReason = string.Empty;
+            var result = SafeExecutor.Run(
+                "Reassert CSM defense task discipline",
+                () => ReassertDefenseAssignmentCore(party, assignment, observationTick, out localReason),
+                false);
+            reason = localReason;
+            return result;
+        }
+
+        private bool ReassertDefenseAssignmentCore(MobileParty party, CsmDefenseAssignment assignment, int observationTick, out string reason)
+        {
+            reason = "Defense assignment could not be reasserted";
+            if (party == null || assignment == null)
+            {
+                reason = "Party or defense assignment missing";
+                return false;
+            }
+
+            if (party.IsMainParty || party.MapEvent != null || party.IsDisbanding || !party.IsActive)
+            {
+                reason = "Party cannot safely receive task discipline defense reassert";
+                return false;
+            }
+
+            var settlement = FindSettlementByIdOrName(assignment.SettlementId, assignment.SettlementName);
+            if (settlement == null || settlement.MapFaction == null || party.MapFaction != settlement.MapFaction)
+            {
+                reason = "Defense assignment target is missing or no longer friendly";
+                return false;
+            }
+
+            party.SetMoveDefendSettlement(settlement, false, party.NavigationCapability);
+            _assignmentRegistry.MarkReasserted(assignment, observationTick, "Strategic task discipline reasserted CSM defense assignment");
+            reason = "Strategic task discipline reasserted CSM defense assignment";
+            return true;
+        }
+
         public DirectDefenseCommandReport Execute(
             DefenseEvaluationSnapshot snapshot,
             DefenseActionPlan actionPlan,
@@ -752,6 +791,36 @@ namespace CalradiaStrategicMind.Strategic
                 }
 
                 if (NamesEqual(settlement.Name.ToString(), settlementName))
+                {
+                    return settlement;
+                }
+            }
+
+            return null;
+        }
+
+        private static Settlement FindSettlementByIdOrName(string settlementId, string settlementName)
+        {
+            var settlements = Settlement.All;
+            if (settlements == null)
+            {
+                return null;
+            }
+
+            for (var index = 0; index < settlements.Count; index++)
+            {
+                var settlement = settlements[index];
+                if (settlement == null)
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(settlementId) && NamesEqual(settlement.StringId, settlementId))
+                {
+                    return settlement;
+                }
+
+                if (settlement.Name != null && NamesEqual(settlement.Name.ToString(), settlementName))
                 {
                     return settlement;
                 }

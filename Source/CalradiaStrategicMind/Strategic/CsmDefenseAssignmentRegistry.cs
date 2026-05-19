@@ -98,6 +98,11 @@ namespace CalradiaStrategicMind.Strategic
             return _activeAssignments.Count;
         }
 
+        public List<CsmDefenseAssignment> GetActiveAssignments()
+        {
+            return new List<CsmDefenseAssignment>(_activeAssignments.Values);
+        }
+
         public int CountActiveAssignmentsForKingdom(string ownerKingdomName)
         {
             var count = 0;

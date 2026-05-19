@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using CalradiaStrategicMind.Settings;
+using CalradiaStrategicMind.Utils;
 using TaleWorlds.CampaignSystem.Party;
+using TaleWorlds.CampaignSystem.Settlements;
 
 namespace CalradiaStrategicMind.Strategic
 {
@@ -82,6 +84,103 @@ namespace CalradiaStrategicMind.Strategic
 
             var armyId = army.LeaderParty.StringId ?? string.Empty;
             return _assignmentRegistry.HasActiveAssignmentForArmy(armyId);
+        }
+
+        public bool ReassertAssignment(MobileParty party, CsmArmyAssignment assignment, int observationTick, out string reason)
+        {
+            var localReason = string.Empty;
+            var result = SafeExecutor.Run(
+                "Reassert CSM army task discipline",
+                () => ReassertAssignmentCore(party, assignment, observationTick, out localReason),
+                false);
+            reason = localReason;
+            return result;
+        }
+
+        private bool ReassertAssignmentCore(MobileParty party, CsmArmyAssignment assignment, int observationTick, out string reason)
+        {
+            reason = "Army assignment could not be reasserted";
+            if (party == null || assignment == null)
+            {
+                reason = "Party or army assignment missing";
+                return false;
+            }
+
+            if (party.Army == null || party.Army.LeaderParty == null)
+            {
+                reason = "Party is not attached to a readable army";
+                return false;
+            }
+
+            var leaderParty = party.Army.LeaderParty;
+            if (leaderParty == null || leaderParty.IsMainParty || leaderParty.MapEvent != null)
+            {
+                reason = "Army leader cannot safely receive task discipline reassert";
+                return false;
+            }
+
+            var target = FindSettlementByIdOrName(assignment.TargetSettlementId, assignment.TargetSettlementName);
+            if (target == null || leaderParty.MapFaction == null || target.MapFaction == null)
+            {
+                reason = "Army assignment target is missing or unreadable";
+                return false;
+            }
+
+            if (assignment.ObjectiveType == "DefendSettlement")
+            {
+                if (leaderParty.MapFaction != target.MapFaction)
+                {
+                    reason = "Army defense target is no longer friendly";
+                    return false;
+                }
+
+                leaderParty.SetMoveDefendSettlement(target, false, leaderParty.NavigationCapability);
+                reason = "Strategic task discipline reasserted CSM army defense assignment";
+            }
+            else
+            {
+                if (!leaderParty.MapFaction.IsAtWarWith(target.MapFaction))
+                {
+                    reason = "Army attack target is no longer enemy";
+                    return false;
+                }
+
+                leaderParty.SetMoveBesiegeSettlement(target, leaderParty.NavigationCapability);
+                reason = "Strategic task discipline reasserted CSM army attack assignment";
+            }
+
+            _assignmentRegistry.MarkReasserted(assignment, observationTick, reason);
+            return true;
+        }
+
+        private static Settlement FindSettlementByIdOrName(string id, string name)
+        {
+            var settlements = Settlement.All;
+            if (settlements == null)
+            {
+                return null;
+            }
+
+            for (var index = 0; index < settlements.Count; index++)
+            {
+                var settlement = settlements[index];
+                if (settlement == null)
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(id) && settlement.StringId == id)
+                {
+                    return settlement;
+                }
+
+                if (settlement.Name != null && settlement.Name.ToString() == name)
+                {
+                    return settlement;
+                }
+            }
+
+            return null;
         }
 
         private static void AddReports(List<CsmArmyDirectorReport> target, List<CsmArmyDirectorReport> source)

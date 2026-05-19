@@ -29,6 +29,7 @@ namespace CalradiaStrategicMind.Behaviors
         private readonly DefenseCommandInterface _defenseCommandInterface;
         private readonly DirectDefenseCommandController _directDefenseCommandController;
         private readonly CsmArmyDirector _armyDirector;
+        private readonly CsmStrategicTaskDisciplineController _strategicTaskDisciplineController;
         private readonly DefenseScoreSimulator _defenseScoreSimulator;
         private readonly DefenseScoreSimulationSummaryBuilder _defenseScoreSimulationSummaryBuilder;
         private readonly ExperimentalDefenseScoreInfluenceRegistry _experimentalDefenseScoreInfluenceRegistry;
@@ -56,6 +57,7 @@ namespace CalradiaStrategicMind.Behaviors
             _defenseCommandInterface = new DefenseCommandInterface();
             _directDefenseCommandController = new DirectDefenseCommandController();
             _armyDirector = new CsmArmyDirector();
+            _strategicTaskDisciplineController = new CsmStrategicTaskDisciplineController();
             _defenseScoreSimulator = new DefenseScoreSimulator();
             _defenseScoreSimulationSummaryBuilder = new DefenseScoreSimulationSummaryBuilder();
             _experimentalDefenseScoreInfluenceRegistry = new ExperimentalDefenseScoreInfluenceRegistry();
@@ -456,6 +458,7 @@ namespace CalradiaStrategicMind.Behaviors
                 }
             }
 
+            _strategicTaskDisciplineController.Execute(_armyDirector, _directDefenseCommandController, _observationTick);
             LogIntegrationHealth(armyCommandsCreated, armyCommandsReasserted);
             if (!ArmyDirectorSettings.EnableArmyDirectorLogs || reports == null)
             {
