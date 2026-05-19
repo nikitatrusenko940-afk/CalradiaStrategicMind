@@ -26,6 +26,7 @@ namespace CalradiaStrategicMind.Strategic
             CsmArmyAssignmentRegistry registry,
             CsmDefenseAssignmentRegistry defenseRegistry,
             CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies,
+            CsmRecentlyFailedArmyTargetRegistry recentlyFailedTargets,
             CsmArmyLifecycleReport lifecycle,
             int observationTick)
         {
@@ -71,7 +72,7 @@ namespace CalradiaStrategicMind.Strategic
                 }
 
                 OffensiveOpportunity opportunity;
-                if (!TryFindOpportunity(kingdom, defenseSnapshots, registry, defenseRegistry, recentlyReleasedArmies, lifecycle, observationTick, kingdomName, out opportunity))
+                if (!TryFindOpportunity(kingdom, defenseSnapshots, registry, defenseRegistry, recentlyReleasedArmies, recentlyFailedTargets, lifecycle, observationTick, kingdomName, out opportunity))
                 {
                     reports.Add(CreateReport(observationTick, "none", kingdomName, "AttackSettlement", "none", false, "Skipped", "No attack target passed Army Target Scoring"));
                     continue;
@@ -125,7 +126,17 @@ namespace CalradiaStrategicMind.Strategic
             return reports;
         }
 
-        private bool TryFindOpportunity(Kingdom kingdom, List<DefenseEvaluationSnapshot> defenseSnapshots, CsmArmyAssignmentRegistry registry, CsmDefenseAssignmentRegistry defenseRegistry, CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies, CsmArmyLifecycleReport lifecycle, int tick, string kingdomName, out OffensiveOpportunity opportunity)
+        public void ResetTargetScoringSummary()
+        {
+            _targetScorer.ResetSummary();
+        }
+
+        public CsmArmyTargetScoringSummary GetTargetScoringSummary()
+        {
+            return _targetScorer.SnapshotSummary();
+        }
+
+        private bool TryFindOpportunity(Kingdom kingdom, List<DefenseEvaluationSnapshot> defenseSnapshots, CsmArmyAssignmentRegistry registry, CsmDefenseAssignmentRegistry defenseRegistry, CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies, CsmRecentlyFailedArmyTargetRegistry recentlyFailedTargets, CsmArmyLifecycleReport lifecycle, int tick, string kingdomName, out OffensiveOpportunity opportunity)
         {
             opportunity = default(OffensiveOpportunity);
             var provisionalLeader = FindBestFormationLeader(kingdom, recentlyReleasedArmies, lifecycle, tick);
@@ -135,10 +146,10 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             var estimatedStrength = EstimateFormationStrength(kingdom, provisionalLeader);
-            var score = _targetScorer.FindBestTarget(kingdom, provisionalLeader, estimatedStrength, defenseSnapshots, registry);
+            var score = _targetScorer.FindBestTarget(kingdom, provisionalLeader, estimatedStrength, defenseSnapshots, registry, defenseRegistry, recentlyFailedTargets, tick);
             if (score == null)
             {
-                var rejected = _targetScorer.FindBestRejectedTarget(kingdom, provisionalLeader, estimatedStrength, defenseSnapshots, registry);
+                var rejected = _targetScorer.FindBestRejectedTarget(kingdom, provisionalLeader, estimatedStrength, defenseSnapshots, registry, defenseRegistry, recentlyFailedTargets, tick);
                 LogTargetRejection(tick, kingdomName, GetPartyName(provisionalLeader), rejected);
                 return false;
             }
@@ -174,7 +185,7 @@ namespace CalradiaStrategicMind.Strategic
                 return false;
             }
 
-            score = _targetScorer.ScoreTarget(kingdom, parties[0], totalStrength, target, defenseSnapshots, registry);
+            score = _targetScorer.ScoreTarget(kingdom, parties[0], totalStrength, target, defenseSnapshots, registry, defenseRegistry, recentlyFailedTargets, tick);
             if (!_targetScorer.IsPassed(score))
             {
                 LogTargetRejection(tick, kingdomName, GetPartyName(parties[0]), score);
@@ -514,7 +525,7 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             CsmLogger.Info(
-                $"Observed CSM army target score: tick={tick}, kingdom='{kingdomName}', army='{armyName}', selectedTarget='{score.TargetName}', score={score.Score:0.00}, distance={score.Distance:0.00}, distanceLimit={score.DistanceLimit:0.00}, targetDefense={score.TargetDefenseStrength:0.00}, estimatedAttackStrength={score.EstimatedAttackStrength:0.00}, strengthRatio={score.StrengthRatio:0.00}, nearbyEnemyArmyStrength={score.NearbyEnemyArmyStrength:0.00}, nearbyFriendlySupportStrength={score.NearbyFriendlySupportStrength:0.00}, isFrontline={score.IsFrontlineCandidate}, extendedFrontline={score.UsesExtendedFrontlineRule}, reason='{score.Reason}'");
+                $"Observed CSM army target score: tick={tick}, kingdom='{kingdomName}', army='{armyName}', selectedTarget='{score.TargetName}', score={score.Score:0.00}, strategicValue={score.StrategicValueScore:0.00}, frontlineScore={score.FrontlineScore:0.00}, distanceScore={score.DistanceScore:0.00}, strengthRatioScore={score.StrengthRatioScore:0.00}, friendlySupportScore={score.NearbyFriendlySupportScore:0.00}, enemyThreatPenalty={score.NearbyEnemyPenalty:0.00}, overextensionPenalty={score.OverextensionPenalty:0.00}, recentlyFailedPenalty={score.RecentlyFailedTargetPenalty:0.00}, reason='{score.Reason}'");
         }
 
         private static void LogTargetRejection(int tick, string kingdomName, string armyName, CsmArmyAttackTargetScore score)
@@ -525,7 +536,7 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             CsmLogger.Info(
-                $"Observed CSM army target rejection: tick={tick}, kingdom='{kingdomName}', army='{armyName}', topRejectedTarget='{score.TargetName}', score={score.Score:0.00}, distance={score.Distance:0.00}, distanceLimit={score.DistanceLimit:0.00}, targetDefense={score.TargetDefenseStrength:0.00}, estimatedAttackStrength={score.EstimatedAttackStrength:0.00}, strengthRatio={score.StrengthRatio:0.00}, nearbyEnemyArmyStrength={score.NearbyEnemyArmyStrength:0.00}, nearbyFriendlySupportStrength={score.NearbyFriendlySupportStrength:0.00}, isFrontline={score.IsFrontlineCandidate}, extendedFrontline={score.UsesExtendedFrontlineRule}, reason='{score.Reason}'");
+                $"Observed CSM army target rejection: tick={tick}, kingdom='{kingdomName}', army='{armyName}', topRejectedTarget='{score.TargetName}', score={score.Score:0.00}, hardRejectReason='{score.HardRejectReason}', strategicValue={score.StrategicValueScore:0.00}, distance={score.Distance:0.00}, strengthRatio={score.StrengthRatio:0.00}, nearbyEnemyArmyStrength={score.NearbyEnemyArmyStrength:0.00}, nearbyFriendlySupportStrength={score.NearbyFriendlySupportStrength:0.00}, reason='{score.Reason}'");
         }
 
         private static string GetKingdomName(Kingdom kingdom)

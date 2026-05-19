@@ -8,12 +8,51 @@ namespace CalradiaStrategicMind.Strategic
 {
     public class CsmArmyAttackTargetScorer
     {
+        private readonly CsmArmyTargetScoringSummary _summary;
+
+        public CsmArmyAttackTargetScorer()
+        {
+            _summary = new CsmArmyTargetScoringSummary();
+        }
+
+        public void ResetSummary()
+        {
+            _summary.EvaluatedTargets = 0;
+            _summary.SelectedTargets = 0;
+            _summary.HardRejectedTargets = 0;
+            _summary.IrrelevantRejectedTargets = 0;
+            _summary.TacticalRejectedTargets = 0;
+            _summary.RejectedActiveDefenseTargets = 0;
+            _summary.RejectedOverextendedTargets = 0;
+            _summary.RejectedLowStrengthTargets = 0;
+            _summary.RecentlyFailedTargetPenalties = 0;
+        }
+
+        public CsmArmyTargetScoringSummary SnapshotSummary()
+        {
+            return new CsmArmyTargetScoringSummary
+            {
+                EvaluatedTargets = _summary.EvaluatedTargets,
+                SelectedTargets = _summary.SelectedTargets,
+                HardRejectedTargets = _summary.HardRejectedTargets,
+                IrrelevantRejectedTargets = _summary.IrrelevantRejectedTargets,
+                TacticalRejectedTargets = _summary.TacticalRejectedTargets,
+                RejectedActiveDefenseTargets = _summary.RejectedActiveDefenseTargets,
+                RejectedOverextendedTargets = _summary.RejectedOverextendedTargets,
+                RejectedLowStrengthTargets = _summary.RejectedLowStrengthTargets,
+                RecentlyFailedTargetPenalties = _summary.RecentlyFailedTargetPenalties
+            };
+        }
+
         public CsmArmyAttackTargetScore FindBestTarget(
             Kingdom kingdom,
             MobileParty leaderParty,
             float estimatedAttackStrength,
             List<DefenseEvaluationSnapshot> defenseSnapshots,
-            CsmArmyAssignmentRegistry registry)
+            CsmArmyAssignmentRegistry registry,
+            CsmDefenseAssignmentRegistry defenseRegistry = null,
+            CsmRecentlyFailedArmyTargetRegistry failedTargets = null,
+            int tick = 0)
         {
             if (!ArmyDirectorSettings.EnableArmyTargetScoring || kingdom == null || leaderParty == null)
             {
@@ -29,7 +68,7 @@ namespace CalradiaStrategicMind.Strategic
             CsmArmyAttackTargetScore best = null;
             for (var index = 0; index < settlements.Count; index++)
             {
-                var score = ScoreTarget(kingdom, leaderParty, estimatedAttackStrength, settlements[index], defenseSnapshots, registry);
+                var score = ScoreTarget(kingdom, leaderParty, estimatedAttackStrength, settlements[index], defenseSnapshots, registry, defenseRegistry, failedTargets, tick);
                 if (score == null || !IsPassed(score))
                 {
                     continue;
@@ -41,6 +80,11 @@ namespace CalradiaStrategicMind.Strategic
                 }
             }
 
+            if (best != null)
+            {
+                _summary.SelectedTargets++;
+            }
+
             return best;
         }
 
@@ -49,7 +93,10 @@ namespace CalradiaStrategicMind.Strategic
             MobileParty leaderParty,
             float estimatedAttackStrength,
             List<DefenseEvaluationSnapshot> defenseSnapshots,
-            CsmArmyAssignmentRegistry registry)
+            CsmArmyAssignmentRegistry registry,
+            CsmDefenseAssignmentRegistry defenseRegistry = null,
+            CsmRecentlyFailedArmyTargetRegistry failedTargets = null,
+            int tick = 0)
         {
             if (!ArmyDirectorSettings.EnableArmyTargetScoring || kingdom == null || leaderParty == null)
             {
@@ -62,22 +109,33 @@ namespace CalradiaStrategicMind.Strategic
                 return null;
             }
 
-            CsmArmyAttackTargetScore bestRejected = null;
+            CsmArmyAttackTargetScore bestTacticalRejected = null;
+            CsmArmyAttackTargetScore bestIrrelevantRejected = null;
             for (var index = 0; index < settlements.Count; index++)
             {
-                var score = ScoreTarget(kingdom, leaderParty, estimatedAttackStrength, settlements[index], defenseSnapshots, registry);
+                var score = ScoreTarget(kingdom, leaderParty, estimatedAttackStrength, settlements[index], defenseSnapshots, registry, defenseRegistry, failedTargets, tick);
                 if (score == null || IsPassed(score))
                 {
                     continue;
                 }
 
-                if (bestRejected == null || score.Score > bestRejected.Score)
+                if (IsTacticalReject(score))
                 {
-                    bestRejected = score;
+                    if (bestTacticalRejected == null || score.Score > bestTacticalRejected.Score)
+                    {
+                        bestTacticalRejected = score;
+                    }
+
+                    continue;
+                }
+
+                if (bestIrrelevantRejected == null || score.Score > bestIrrelevantRejected.Score)
+                {
+                    bestIrrelevantRejected = score;
                 }
             }
 
-            return bestRejected;
+            return bestTacticalRejected ?? bestIrrelevantRejected;
         }
 
         public CsmArmyAttackTargetScore ScoreTarget(
@@ -86,7 +144,10 @@ namespace CalradiaStrategicMind.Strategic
             float estimatedAttackStrength,
             Settlement target,
             List<DefenseEvaluationSnapshot> defenseSnapshots,
-            CsmArmyAssignmentRegistry registry)
+            CsmArmyAssignmentRegistry registry,
+            CsmDefenseAssignmentRegistry defenseRegistry = null,
+            CsmRecentlyFailedArmyTargetRegistry failedTargets = null,
+            int tick = 0)
         {
             if (kingdom == null || leaderParty == null || target == null)
             {
@@ -94,11 +155,6 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             if (!target.IsFortification || (!target.IsCastle && !target.IsTown))
-            {
-                return null;
-            }
-
-            if (target.MapFaction == null || target.MapFaction == kingdom || !kingdom.IsAtWarWith(target.MapFaction))
             {
                 return null;
             }
@@ -122,11 +178,16 @@ namespace CalradiaStrategicMind.Strategic
             result.IsFrontlineCandidate = IsFrontlineCandidate(target, kingdom);
             result.IsAlreadyAssigned = registry != null && registry.GetActiveAssignmentForTarget("AttackSettlement", target.StringId, result.TargetName) != null;
             result.IsAlreadyBesieged = IsAlreadyBesiegedByFriendly(target, kingdom);
-            result.IsActiveDefenseTarget = IsActiveDefenseTarget(target, defenseSnapshots);
-            result.Score = CalculateScore(result);
+            result.IsActiveDefenseTarget = IsActiveDefenseTarget(target, defenseSnapshots)
+                || (defenseRegistry != null && defenseRegistry.HasActiveAssignmentForSettlement(target.StringId, result.TargetName));
+            result.RecentlyFailedTargetPenalty = GetRecentlyFailedTargetPenalty(failedTargets, leaderParty, kingdom, target, result.TargetName, tick);
+
+            CalculateScore(result);
             result.UsesExtendedFrontlineRule = UsesExtendedFrontlineRule(result);
             result.DistanceLimit = result.UsesExtendedFrontlineRule ? ArmyDirectorSettings.ExtendedFrontlineAttackTargetDistance : ArmyDirectorSettings.MaxAttackTargetDistance;
+            result.HardRejectReason = BuildHardRejectReason(result, kingdom, target);
             result.Reason = BuildReason(result);
+            RecordSummary(result);
             return result;
         }
 
@@ -134,56 +195,105 @@ namespace CalradiaStrategicMind.Strategic
         {
             return score != null
                 && score.Target != null
-                && (score.Distance <= ArmyDirectorSettings.MaxAttackTargetDistance || UsesExtendedFrontlineRule(score))
-                && score.Score >= ArmyDirectorSettings.MinimumAttackTargetScore
-                && score.StrengthRatio >= ArmyDirectorSettings.GoodAttackRequiredStrengthRatio
-                && !score.IsAlreadyAssigned
-                && !score.IsAlreadyBesieged
-                && !score.IsActiveDefenseTarget;
+                && string.IsNullOrWhiteSpace(score.HardRejectReason)
+                && score.Score >= ArmyDirectorSettings.MinimumAttackTargetScore;
         }
 
-        private static float CalculateScore(CsmArmyAttackTargetScore score)
+        private static void CalculateScore(CsmArmyAttackTargetScore score)
         {
-            var value = 50f;
-            value += score.IsCastle ? ArmyDirectorSettings.CastleTargetBonus : 0f;
-            value += score.IsTown ? ArmyDirectorSettings.TownTargetBonus : 0f;
-            value += score.IsFrontlineCandidate ? ArmyDirectorSettings.FrontlineTargetBonus : -ArmyDirectorSettings.DeepEnemyTerritoryPenalty;
-            value += score.StrengthRatio * ArmyDirectorSettings.StrengthRatioScoreMultiplier;
-            value += score.NearbyFriendlySupportStrength * ArmyDirectorSettings.NearbyFriendlySupportBonusMultiplier;
-            value -= score.Distance * ArmyDirectorSettings.DistancePenaltyPerMapUnit;
-            value -= score.TargetDefenseStrength * ArmyDirectorSettings.TargetDefensePenaltyMultiplier;
-            value -= score.NearbyEnemyArmyStrength * ArmyDirectorSettings.NearbyEnemyArmyPenaltyMultiplier;
+            score.StrategicValueScore = 50f;
+            score.StrategicValueScore += score.IsCastle ? ArmyDirectorSettings.CastleTargetBonus : 0f;
+            score.StrategicValueScore += score.IsTown ? ArmyDirectorSettings.TownTargetBonus : 0f;
+            score.StrategicValueScore += score.TargetDefenseStrength < score.EstimatedAttackStrength ? 10f : 0f;
+
+            score.FrontlineScore = score.IsFrontlineCandidate ? ArmyDirectorSettings.FrontlineTargetBonus : -ArmyDirectorSettings.DeepEnemyTerritoryPenalty;
+            score.DistanceScore = -score.Distance * ArmyDirectorSettings.DistancePenaltyPerMapUnit;
+            score.StrengthRatioScore = score.StrengthRatio * ArmyDirectorSettings.StrengthRatioScoreMultiplier;
+            score.NearbyFriendlySupportScore = score.NearbyFriendlySupportStrength * ArmyDirectorSettings.NearbyFriendlySupportBonusMultiplier;
+            score.NearbyEnemyPenalty = score.NearbyEnemyArmyStrength * ArmyDirectorSettings.NearbyEnemyArmyPenaltyMultiplier;
+            score.SiegeRiskPenalty = score.TargetDefenseStrength * ArmyDirectorSettings.TargetDefensePenaltyMultiplier;
+            score.ActiveDefensePenalty = score.IsActiveDefenseTarget ? ArmyDirectorSettings.ActiveDefenseTargetPenalty : 0f;
+            score.ExistingFriendlySiegePenalty = score.IsAlreadyBesieged ? ArmyDirectorSettings.ExistingFriendlySiegePenalty : 0f;
+            score.OverextensionPenalty = CalculateOverextensionPenalty(score);
 
             if (score.IsTown && ArmyDirectorSettings.PreferCastlesForAlpha && score.StrengthRatio < ArmyDirectorSettings.GoodAttackRequiredStrengthRatio * 1.5f)
             {
-                value -= ArmyDirectorSettings.TownTooStrongPenalty;
-            }
-
-            if (score.IsAlreadyBesieged)
-            {
-                value -= ArmyDirectorSettings.AlreadyBesiegedPenalty;
-            }
-
-            if (score.IsActiveDefenseTarget)
-            {
-                value -= ArmyDirectorSettings.ActiveDefenseTargetPenalty;
+                score.SiegeRiskPenalty += ArmyDirectorSettings.TownTooStrongPenalty;
             }
 
             if (score.IsAlreadyAssigned)
             {
-                value -= ArmyDirectorSettings.AlreadyBesiegedPenalty;
+                score.ExistingFriendlySiegePenalty += ArmyDirectorSettings.AlreadyBesiegedPenalty;
             }
+
+            score.FinalScoreBeforeHardRejects = score.StrategicValueScore
+                + score.FrontlineScore
+                + score.DistanceScore
+                + score.StrengthRatioScore
+                + score.NearbyFriendlySupportScore
+                - score.NearbyEnemyPenalty
+                - score.SiegeRiskPenalty
+                - score.ActiveDefensePenalty
+                - score.ExistingFriendlySiegePenalty
+                - score.OverextensionPenalty
+                - score.RecentlyFailedTargetPenalty;
 
             if (score.StrengthRatio < ArmyDirectorSettings.GoodAttackRequiredStrengthRatio)
             {
-                value -= 100f;
+                score.FinalScoreBeforeHardRejects -= 100f;
             }
 
-            return value;
+            score.Score = score.FinalScoreBeforeHardRejects;
         }
 
-        private static string BuildReason(CsmArmyAttackTargetScore score)
+        private static float CalculateOverextensionPenalty(CsmArmyAttackTargetScore score)
         {
+            var penalty = 0f;
+            if (!score.IsFrontlineCandidate)
+            {
+                penalty += ArmyDirectorSettings.IsolatedTargetPenalty;
+            }
+
+            if (score.Distance > ArmyDirectorSettings.MaxAttackTargetDistance)
+            {
+                penalty += (score.Distance - ArmyDirectorSettings.MaxAttackTargetDistance) * ArmyDirectorSettings.DistancePenaltyPerMapUnit;
+            }
+
+            if (score.NearbyFriendlySupportStrength < ArmyDirectorSettings.MinimumFriendlySupportForExtendedAttack)
+            {
+                penalty += ArmyDirectorSettings.IsolatedTargetPenalty;
+            }
+
+            if (score.EstimatedAttackStrength > 0f && score.NearbyEnemyArmyStrength >= score.EstimatedAttackStrength * ArmyDirectorSettings.DangerousNearbyEnemyArmyRatio)
+            {
+                penalty += ArmyDirectorSettings.MaxOverextensionPenalty * 0.5f;
+            }
+
+            return penalty > ArmyDirectorSettings.MaxOverextensionPenalty ? ArmyDirectorSettings.MaxOverextensionPenalty : penalty;
+        }
+
+        private static string BuildHardRejectReason(CsmArmyAttackTargetScore score, Kingdom kingdom, Settlement target)
+        {
+            if (score == null || target == null || kingdom == null)
+            {
+                return "Rejected because kingdom/army/leader/target is invalid";
+            }
+
+            if (target.MapFaction == null)
+            {
+                return "Rejected because target settlement faction is unreadable";
+            }
+
+            if (target.MapFaction == kingdom)
+            {
+                return "Rejected because target is already friendly";
+            }
+
+            if (!kingdom.IsAtWarWith(target.MapFaction))
+            {
+                return "Rejected because target is not enemy";
+            }
+
             if (score.IsActiveDefenseTarget)
             {
                 return "Rejected active defense target";
@@ -191,32 +301,59 @@ namespace CalradiaStrategicMind.Strategic
 
             if (score.IsAlreadyAssigned)
             {
-                return "Rejected active CSM attack assignment target";
+                return "Rejected because target already has active CSM army assignment";
             }
 
             if (score.IsAlreadyBesieged)
             {
-                return "Rejected already besieged target";
+                return "Rejected because target is already under friendly siege";
             }
 
             if (score.StrengthRatio < ArmyDirectorSettings.GoodAttackRequiredStrengthRatio)
             {
-                return "Rejected target because attack strength ratio is too low";
+                return "Rejected because attack strength ratio is too low";
+            }
+
+            if (score.EstimatedAttackStrength > 0f
+                && score.NearbyEnemyArmyStrength >= score.EstimatedAttackStrength * ArmyDirectorSettings.DangerousNearbyEnemyArmyRatio)
+            {
+                return "Rejected because nearby enemy army strength is too high";
+            }
+
+            if (score.Distance > ArmyDirectorSettings.MaxAttackTargetDistance && !UsesExtendedFrontlineRule(score))
+            {
+                return IsAlmostExtendedFrontlineTarget(score)
+                    ? "Rejected because target is overextended and unsupported"
+                    : "Rejected because distance is too high";
+            }
+
+            if (score.Distance > ArmyDirectorSettings.MaxAttackTargetDistance
+                && score.NearbyFriendlySupportStrength < ArmyDirectorSettings.MinimumFriendlySupportForExtendedAttack)
+            {
+                return "Rejected because target is overextended and unsupported";
+            }
+
+            return null;
+        }
+
+        private static string BuildReason(CsmArmyAttackTargetScore score)
+        {
+            if (!string.IsNullOrWhiteSpace(score.HardRejectReason))
+            {
+                return score.HardRejectReason;
+            }
+
+            if (score.RecentlyFailedTargetPenalty > 0f)
+            {
+                return "Selected target with recently failed target penalty by Army Target Scoring v2";
             }
 
             if (UsesExtendedFrontlineRule(score))
             {
-                return "Selected extended frontline attack target by Army Target Scoring";
+                return "Selected extended frontline attack target by Army Target Scoring v2";
             }
 
-            if (score.Distance > ArmyDirectorSettings.MaxAttackTargetDistance)
-            {
-                return IsAlmostExtendedFrontlineTarget(score)
-                    ? "Rejected target because extended frontline requirements were not met"
-                    : "Rejected target because distance is too high";
-            }
-
-            return score.IsFrontlineCandidate ? "Selected frontline attack target by Army Target Scoring" : "Selected deep attack target by Army Target Scoring";
+            return score.IsFrontlineCandidate ? "Selected frontline attack target by Army Target Scoring v2" : "Selected deep attack target by Army Target Scoring v2";
         }
 
         private static bool UsesExtendedFrontlineRule(CsmArmyAttackTargetScore score)
@@ -227,6 +364,7 @@ namespace CalradiaStrategicMind.Strategic
                 && score.Distance > ArmyDirectorSettings.MaxAttackTargetDistance
                 && score.Distance <= ArmyDirectorSettings.ExtendedFrontlineAttackTargetDistance
                 && score.StrengthRatio >= ArmyDirectorSettings.ExtendedFrontlineRequiredStrengthRatio
+                && score.NearbyFriendlySupportStrength >= ArmyDirectorSettings.MinimumFriendlySupportForExtendedAttack
                 && score.Score >= ArmyDirectorSettings.ExtendedFrontlineMinimumScore;
         }
 
@@ -237,6 +375,100 @@ namespace CalradiaStrategicMind.Strategic
                 && score.IsFrontlineCandidate
                 && score.Distance > ArmyDirectorSettings.MaxAttackTargetDistance
                 && score.Distance <= ArmyDirectorSettings.ExtendedFrontlineAttackTargetDistance;
+        }
+
+        private void RecordSummary(CsmArmyAttackTargetScore score)
+        {
+            if (score == null)
+            {
+                return;
+            }
+
+            _summary.EvaluatedTargets++;
+            if (score.RecentlyFailedTargetPenalty > 0f)
+            {
+                _summary.RecentlyFailedTargetPenalties++;
+            }
+
+            if (string.IsNullOrWhiteSpace(score.HardRejectReason))
+            {
+                return;
+            }
+
+            _summary.HardRejectedTargets++;
+            if (IsIrrelevantReject(score))
+            {
+                _summary.IrrelevantRejectedTargets++;
+                return;
+            }
+
+            if (IsTacticalReject(score))
+            {
+                _summary.TacticalRejectedTargets++;
+            }
+
+            if (score.IsActiveDefenseTarget)
+            {
+                _summary.RejectedActiveDefenseTargets++;
+            }
+
+            if (score.StrengthRatio < ArmyDirectorSettings.GoodAttackRequiredStrengthRatio)
+            {
+                _summary.RejectedLowStrengthTargets++;
+            }
+
+            if (score.HardRejectReason == "Rejected because target is overextended and unsupported"
+                || score.HardRejectReason == "Rejected because nearby enemy army strength is too high")
+            {
+                _summary.RejectedOverextendedTargets++;
+            }
+        }
+
+        private static bool IsIrrelevantReject(CsmArmyAttackTargetScore score)
+        {
+            if (score == null)
+            {
+                return true;
+            }
+
+            return score.HardRejectReason == "Rejected because target is already friendly"
+                || score.HardRejectReason == "Rejected because target is not enemy"
+                || score.HardRejectReason == "Rejected because target settlement faction is unreadable"
+                || score.HardRejectReason == "Rejected because kingdom/army/leader/target is invalid";
+        }
+
+        private static bool IsTacticalReject(CsmArmyAttackTargetScore score)
+        {
+            return score != null
+                && !string.IsNullOrWhiteSpace(score.HardRejectReason)
+                && !IsIrrelevantReject(score);
+        }
+
+        private static float GetRecentlyFailedTargetPenalty(
+            CsmRecentlyFailedArmyTargetRegistry failedTargets,
+            MobileParty leaderParty,
+            Kingdom kingdom,
+            Settlement target,
+            string targetName,
+            int tick)
+        {
+            if (failedTargets == null || target == null)
+            {
+                return 0f;
+            }
+
+            var state = failedTargets.GetActiveFailure(
+                leaderParty?.Army?.LeaderParty?.StringId ?? leaderParty?.StringId ?? string.Empty,
+                GetKingdomName(kingdom),
+                target.StringId,
+                targetName,
+                tick);
+            if (state == null)
+            {
+                return 0f;
+            }
+
+            return ArmyDirectorSettings.RecentlyFailedTargetCooldownTicks <= 2 ? 40f : 65f;
         }
 
         private static bool IsAlreadyBesiegedByFriendly(Settlement settlement, Kingdom kingdom)
@@ -384,6 +616,11 @@ namespace CalradiaStrategicMind.Strategic
         private static string GetSettlementName(Settlement settlement)
         {
             return settlement?.Name == null ? "unknown" : settlement.Name.ToString();
+        }
+
+        private static string GetKingdomName(Kingdom kingdom)
+        {
+            return kingdom?.Name == null ? "unknown" : kingdom.Name.ToString();
         }
     }
 }

@@ -21,6 +21,19 @@ namespace CalradiaStrategicMind.Strategic
         public bool IsAlreadyAssigned { get; set; }
         public bool IsAlreadyBesieged { get; set; }
         public bool IsActiveDefenseTarget { get; set; }
+        public float StrategicValueScore { get; set; }
+        public float FrontlineScore { get; set; }
+        public float DistanceScore { get; set; }
+        public float StrengthRatioScore { get; set; }
+        public float NearbyEnemyPenalty { get; set; }
+        public float NearbyFriendlySupportScore { get; set; }
+        public float OverextensionPenalty { get; set; }
+        public float SiegeRiskPenalty { get; set; }
+        public float ActiveDefensePenalty { get; set; }
+        public float RecentlyFailedTargetPenalty { get; set; }
+        public float ExistingFriendlySiegePenalty { get; set; }
+        public float FinalScoreBeforeHardRejects { get; set; }
+        public string HardRejectReason { get; set; }
         public string Reason { get; set; }
     }
 }
