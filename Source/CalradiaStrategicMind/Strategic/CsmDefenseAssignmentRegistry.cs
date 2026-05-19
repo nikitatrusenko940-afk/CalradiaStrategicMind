@@ -77,15 +77,20 @@ namespace CalradiaStrategicMind.Strategic
 
         public bool HasActiveAssignmentForParty(string partyId, string partyName)
         {
+            return GetActiveAssignmentForParty(partyId, partyName) != null;
+        }
+
+        public CsmDefenseAssignment GetActiveAssignmentForParty(string partyId, string partyName)
+        {
             foreach (var assignment in _activeAssignments.Values)
             {
                 if (MatchesParty(assignment, partyId, partyName))
                 {
-                    return true;
+                    return assignment;
                 }
             }
 
-            return false;
+            return null;
         }
 
         public int CountActiveAssignments()

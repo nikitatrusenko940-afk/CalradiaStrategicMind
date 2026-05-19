@@ -78,6 +78,11 @@ namespace CalradiaStrategicMind.Strategic
             return _assignmentsByArmy.ContainsKey(Normalize(armyId));
         }
 
+        public int CountActiveAssignments()
+        {
+            return _assignmentsByArmy.Count;
+        }
+
         public void Close(CsmArmyAssignment assignment, string status, string reason)
         {
             if (assignment == null)

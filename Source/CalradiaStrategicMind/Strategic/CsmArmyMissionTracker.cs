@@ -352,6 +352,7 @@ namespace CalradiaStrategicMind.Strategic
                 || status == CsmArmyMissionStatus.ActiveSiegeRedirectBlocked
                 || status == CsmArmyMissionStatus.ObjectiveMismatch
                 || status == CsmArmyMissionStatus.Stalled
+                || status == CsmArmyMissionStatus.WaitingAfterCompletedMission
                 || status == CsmArmyMissionStatus.Unsafe;
         }
 

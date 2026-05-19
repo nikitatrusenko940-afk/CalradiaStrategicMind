@@ -24,6 +24,7 @@ namespace CalradiaStrategicMind.Strategic
             List<CsmArmySnapshot> armySnapshots,
             List<DefenseEvaluationSnapshot> defenseSnapshots,
             CsmArmyAssignmentRegistry registry,
+            CsmDefenseAssignmentRegistry defenseRegistry,
             int observationTick)
         {
             var reports = new List<CsmArmyDirectorReport>();
@@ -68,7 +69,7 @@ namespace CalradiaStrategicMind.Strategic
                 }
 
                 OffensiveOpportunity opportunity;
-                if (!TryFindOpportunity(kingdom, defenseSnapshots, registry, observationTick, kingdomName, out opportunity))
+                if (!TryFindOpportunity(kingdom, defenseSnapshots, registry, defenseRegistry, observationTick, kingdomName, out opportunity))
                 {
                     reports.Add(CreateReport(observationTick, "none", kingdomName, "AttackSettlement", "none", false, "Skipped", "No attack target passed Army Target Scoring"));
                     continue;
@@ -77,6 +78,13 @@ namespace CalradiaStrategicMind.Strategic
                 if (HasActiveAssignmentForLeaderArmy(opportunity.Leader, registry))
                 {
                     reports.Add(CreateReport(observationTick, GetPartyName(opportunity.Leader), kingdomName, "AttackSettlement", GetSettlementName(opportunity.Target), false, "Skipped", "Active CSM army assignment already exists"));
+                    continue;
+                }
+
+                var conflict = new CsmAssignmentConflictChecker(registry, defenseRegistry).CheckPartyForNewArmyCommand(opportunity.Leader, opportunity.Target);
+                if (conflict.IsBlocked)
+                {
+                    reports.Add(CreateReport(observationTick, GetPartyName(opportunity.Leader), kingdomName, "AttackSettlement", GetSettlementName(opportunity.Target), false, "Skipped", conflict.Reason));
                     continue;
                 }
 
@@ -115,7 +123,7 @@ namespace CalradiaStrategicMind.Strategic
             return reports;
         }
 
-        private bool TryFindOpportunity(Kingdom kingdom, List<DefenseEvaluationSnapshot> defenseSnapshots, CsmArmyAssignmentRegistry registry, int tick, string kingdomName, out OffensiveOpportunity opportunity)
+        private bool TryFindOpportunity(Kingdom kingdom, List<DefenseEvaluationSnapshot> defenseSnapshots, CsmArmyAssignmentRegistry registry, CsmDefenseAssignmentRegistry defenseRegistry, int tick, string kingdomName, out OffensiveOpportunity opportunity)
         {
             opportunity = default(OffensiveOpportunity);
             var provisionalLeader = FindBestFormationLeader(kingdom);
@@ -135,7 +143,13 @@ namespace CalradiaStrategicMind.Strategic
 
             LogTargetScore(tick, kingdomName, GetPartyName(provisionalLeader), score);
             var target = score.Target;
-            var parties = FindFormationParties(kingdom, target);
+            if (defenseRegistry != null && defenseRegistry.HasActiveAssignmentForSettlement(GetSettlementId(target), GetSettlementName(target)))
+            {
+                LogTargetRejection(tick, kingdomName, GetPartyName(provisionalLeader), score);
+                return false;
+            }
+
+            var parties = FindFormationParties(kingdom, target, registry, defenseRegistry);
             if (parties.Count < ArmyDirectorSettings.MinOffensiveFormationParties)
             {
                 return false;
@@ -308,7 +322,7 @@ namespace CalradiaStrategicMind.Strategic
             return null;
         }
 
-        private List<MobileParty> FindFormationParties(Kingdom kingdom, Settlement target)
+        private List<MobileParty> FindFormationParties(Kingdom kingdom, Settlement target, CsmArmyAssignmentRegistry registry, CsmDefenseAssignmentRegistry defenseRegistry)
         {
             var parties = new List<MobileParty>();
             if (kingdom == null || kingdom.WarPartyComponents == null || target == null)
@@ -325,6 +339,11 @@ namespace CalradiaStrategicMind.Strategic
                 }
 
                 if (target.Position.Distance(party.Position) > ArmyDirectorSettings.MaxAttackTargetDistance)
+                {
+                    continue;
+                }
+
+                if (new CsmAssignmentConflictChecker(registry, defenseRegistry).CheckPartyForNewArmyCommand(party, target).IsBlocked)
                 {
                     continue;
                 }

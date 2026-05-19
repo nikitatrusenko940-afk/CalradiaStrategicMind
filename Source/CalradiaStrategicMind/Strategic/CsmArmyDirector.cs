@@ -23,6 +23,11 @@ namespace CalradiaStrategicMind.Strategic
 
         public List<CsmArmyDirectorReport> Evaluate(List<DefenseEvaluationSnapshot> defenseSnapshots, int observationTick)
         {
+            return Evaluate(defenseSnapshots, null, observationTick);
+        }
+
+        public List<CsmArmyDirectorReport> Evaluate(List<DefenseEvaluationSnapshot> defenseSnapshots, CsmDefenseAssignmentRegistry defenseRegistry, int observationTick)
+        {
             var reports = new List<CsmArmyDirectorReport>();
             if (!ArmyDirectorSettings.EnableArmyDirector)
             {
@@ -31,7 +36,7 @@ namespace CalradiaStrategicMind.Strategic
 
             var snapshots = _snapshotBuilder.Build();
             var isCommandCooldownActive = observationTick - _lastCommandTick < GetCooldownTicks();
-            var operationalReports = _operationalDirector.Execute(snapshots, defenseSnapshots, _assignmentRegistry, observationTick, isCommandCooldownActive);
+            var operationalReports = _operationalDirector.Execute(snapshots, defenseSnapshots, _assignmentRegistry, defenseRegistry, observationTick, isCommandCooldownActive);
             AddReports(reports, operationalReports);
 
             if (isCommandCooldownActive)
@@ -40,7 +45,7 @@ namespace CalradiaStrategicMind.Strategic
             }
             else
             {
-                var formationReports = _formationDirector.Execute(snapshots, defenseSnapshots, _assignmentRegistry, observationTick);
+                var formationReports = _formationDirector.Execute(snapshots, defenseSnapshots, _assignmentRegistry, defenseRegistry, observationTick);
                 AddReports(reports, formationReports);
             }
 
@@ -50,6 +55,16 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             return reports;
+        }
+
+        public int CountActiveAssignments()
+        {
+            return _assignmentRegistry.CountActiveAssignments();
+        }
+
+        public CsmArmyAssignmentRegistry AssignmentRegistry
+        {
+            get { return _assignmentRegistry; }
         }
 
         public bool HasActiveAssignmentForParty(MobileParty party)
