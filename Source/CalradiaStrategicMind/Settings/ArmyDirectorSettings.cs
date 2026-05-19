@@ -26,6 +26,22 @@ namespace CalradiaStrategicMind.Settings
         public static int ReassertArmyCommandEveryTicks = 2;
         public static int MaxArmyReassertionsPerAssignment = 5;
 
+        public static bool EnableArmyMissionTracking = true;
+
+        public static int MissionProgressCheckEveryTicks = 2;
+        public static int MissionStalledTicksBeforeReassert = 4;
+        public static int MissionStalledTicksBeforeRelease = 8;
+
+        public static float MissionProgressMinimumDistanceDelta = 3f;
+        public static float MissionArrivedDistance = 8f;
+        public static float MissionWrongTargetToleranceDistance = 20f;
+
+        public static int MaxObjectiveSyncAttemptsPerAssignment = 4;
+        public static int MaxMissionRepathAttemptsPerAssignment = 4;
+        public static int RedirectGraceTicks = 4;
+        public static int MinimumTicksBetweenArmyRedirects = 8;
+        public static int MaxRedirectsPerAssignment = 2;
+
         public static float MinimumArmyStrengthForAttack = 700f;
         public static float MinimumArmyStrengthForDefenseRedirect = 500f;
         public static float MinimumArmyStrengthForSiegeSupport = 500f;
