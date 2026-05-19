@@ -14,7 +14,7 @@ Current state:
 
 ## Pipeline
 
-`PartyStrength` -> `PartyClassifier` -> `SettlementThreat` -> `SettlementValue` -> `DefensePriority` -> `DefenseCandidates` -> `DefenseCoverage` -> `DefenseNeed` -> `DefenseEvaluationSnapshot` -> `DefenseActionPlan` -> `DefenseActionPlanHistory` -> `DefenseDiagnosticsSummary` -> `DryRunDefenseController` -> `DryRunDecisionHistory` -> `DryRunDefenseReportAggregator` -> `DefenseControllerScaffold` -> `DefenseControllerSafetyGuard` -> `DefenseCommandInterface` -> `DefenseScoreSimulation` -> `DefenseScoreSimulationDailySummary`
+`PartyStrength` -> `PartyClassifier` -> `SettlementThreat` -> `SettlementValue` -> `DefensePriority` -> `DefenseCandidates` -> `DefenseCoverage` -> `DefenseNeed` -> `DefenseEvaluationSnapshot` -> `DefenseActionPlan` -> `DefenseActionPlanHistory` -> `DefenseDiagnosticsSummary` -> `DryRunDefenseController` -> `DryRunDecisionHistory` -> `DryRunDefenseReportAggregator` -> `DefenseControllerScaffold` -> `DefenseControllerSafetyGuard` -> `DefenseCommandInterface` -> `DefenseScoreSimulation` -> `DefenseScoreSimulationDailySummary` -> `ExperimentalDefenseScoreInfluence`
 
 ## Layers
 
@@ -226,6 +226,20 @@ It does not create `AIBehaviorData`, does not access `PartyThinkParams`, does no
 
 Provides the `Observed defense score simulation summary` short-log line.
 
+### ExperimentalDefenseScoreInfluence
+
+Classes: `ExperimentalDefenseScoreInfluenceBehavior`, `ExperimentalDefenseScoreInfluenceRegistry`, `ExperimentalDefenseScoreInfluenceReport`
+
+This is an experimental AI-influencing layer and is disabled by default through `ExperimentalDefenseScoreInfluenceSettings.EnableExperimentalDefenseScoreInfluence = false`.
+
+It records recent score simulation reports in runtime-only memory and, only when explicitly enabled and gated by filters, may add a small `AiBehavior.DefendSettlement` score into live `PartyThinkParams`.
+
+This is not diagnostic-only when enabled. `PartyThinkParams` participates in vanilla AI selection, so the score can indirectly lead vanilla AI to apply a real defend-settlement behavior if it wins selection.
+
+It does not directly call `MobileParty.SetMove...`, `SetPartyAiAction`, target/objective setters, army actions, settlement mutations, kingdom mutations, Harmony, or MCM.
+
+Provides the `Observed experimental defense score influence` log line when an influence attempt is made.
+
 ### DefenseEvaluationSnapshot
 
 Classes: `DefenseEvaluationSnapshot`, `DefenseEvaluationSnapshotBuilder`
@@ -253,6 +267,7 @@ Provides one read-only evaluation bundle to logging, action planning, history, s
 - The defense command interface only reports blocked or allowed diagnostic commands; `WasExecuted` remains `false`.
 - The defense score simulation calculates only hypothetical scores and never writes to `PartyThinkParams`.
 - The defense score simulation daily summary aggregates simulation reports only and never writes to `PartyThinkParams`.
+- The experimental defense score influence layer is disabled by default. If enabled, it is real AI influence through `PartyThinkParams`, not a direct movement/order command.
 
 ## Current Logs
 
@@ -274,6 +289,7 @@ Provides one read-only evaluation bundle to logging, action planning, history, s
 - `Observed defense command`
 - `Observed defense score simulation`
 - `Observed defense score simulation summary`
+- `Observed experimental defense score influence`
 
 ## Future AI Integration Boundary
 
@@ -301,6 +317,7 @@ Classes:
 - `DefenseDryRunSettings`: dry-run controller, history, and daily report switches.
 - `DefenseControllerSettings`: real controller scaffold switch.
 - `DefenseScoreSimulationSettings`: diagnostic score simulation switches.
+- `ExperimentalDefenseScoreInfluenceSettings`: disabled-by-default experimental AI influence switches.
 - `DryRunDefenseSettings`: temporary compatibility wrapper over the grouped settings classes.
 
 Diagnostics settings:
@@ -321,6 +338,14 @@ Controller settings:
 Score simulation settings:
 - `DefenseScoreSimulationSettings.EnableDefenseScoreSimulation`: enables or disables diagnostic-only hypothetical defense score simulation logs.
 - `DefenseScoreSimulationSettings.EnableDefenseScoreSimulationSummary`: enables or disables diagnostic-only score simulation summary logs.
+
+Experimental influence settings:
+- `ExperimentalDefenseScoreInfluenceSettings.EnableExperimentalDefenseScoreInfluence`: enables or disables experimental score influence. It defaults to `false`.
+- `ExperimentalDefenseScoreInfluenceSettings.RequireSettlementNameFilter`: requires a settlement name filter before experimental influence can run.
+- `ExperimentalDefenseScoreInfluenceSettings.SettlementNameFilter`: limits influence to a single settlement name.
+- `ExperimentalDefenseScoreInfluenceSettings.MaxScoreBoost`: caps the score boost added to vanilla AI scoring.
+- `ExperimentalDefenseScoreInfluenceSettings.MinimumHypotheticalScore`: blocks weak diagnostic signals.
+- `ExperimentalDefenseScoreInfluenceSettings.MaxInfluenceAgeTicks`: blocks stale diagnostic reports.
 
 These settings remain a simple bridge toward future configuration. MCM must only be added in a separate explicit task.
 

@@ -1,3 +1,7 @@
+param(
+    [switch]$AllowExperimentalAi
+)
+
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -35,6 +39,14 @@ $allowedFindings = @(
     }
 )
 
+$experimentalAiAllowedPath = ".\Source\CalradiaStrategicMind\Behaviors\ExperimentalDefenseScoreInfluenceBehavior.cs"
+$experimentalAiAllowedPatterns = @(
+    "AddBehaviorScore",
+    "SetBehaviorScore",
+    "AIBehaviorData",
+    "PartyThinkParams"
+)
+
 function Test-IsAllowedFinding {
     param(
         [string]$Path,
@@ -48,6 +60,12 @@ function Test-IsAllowedFinding {
             $Line -eq $allowedFinding.Line) {
             return $true
         }
+    }
+
+    if ($AllowExperimentalAi -and
+        $Path -eq $experimentalAiAllowedPath -and
+        $experimentalAiAllowedPatterns -contains $Pattern) {
+        return $true
     }
 
     return $false
@@ -67,7 +85,8 @@ $findings = @()
 
 foreach ($file in $files) {
     foreach ($pattern in $forbiddenPatterns) {
-        $matches = Select-String -LiteralPath $file.FullName -Pattern $pattern -SimpleMatch
+        $escapedPattern = [regex]::Escape($pattern)
+        $matches = Select-String -LiteralPath $file.FullName -Pattern "(?<![A-Za-z0-9_])$escapedPattern(?![A-Za-z0-9_])"
         foreach ($match in $matches) {
             $relativePath = Resolve-Path -LiteralPath $match.Path -Relative
             $line = $match.Line.Trim()

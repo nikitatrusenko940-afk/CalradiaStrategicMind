@@ -44,6 +44,8 @@ namespace CalradiaStrategicMind
 
                 campaignGameStarter.AddBehavior(new StrategicObservationBehavior());
                 CsmLogger.Info("Strategic observation behavior registered");
+                campaignGameStarter.AddBehavior(new ExperimentalDefenseScoreInfluenceBehavior());
+                CsmLogger.Info("Experimental defense score influence behavior registered");
             });
         }
     }

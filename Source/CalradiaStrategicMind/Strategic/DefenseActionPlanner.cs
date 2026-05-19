@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using CalradiaStrategicMind.Settings;
 using CalradiaStrategicMind.Utils;
 
 namespace CalradiaStrategicMind.Strategic
@@ -32,6 +33,25 @@ namespace CalradiaStrategicMind.Strategic
                 ? candidates[0]
                 : default(DefenseCandidateReport);
             var planConfidence = GetPlanConfidence(needReport, selectedCandidateCount, selectedCandidateStrength, primaryCandidate);
+
+            if (needReport.NeedsDefenseAction && planConfidence < DefenseActionThresholdSettings.MinimumActionPlanConfidence)
+            {
+                return new DefenseActionPlan(
+                    needReport.SettlementName,
+                    needReport.OwnerKingdomName,
+                    "Monitor",
+                    false,
+                    needReport.DefensePriority,
+                    needReport.DefenseCoverageRatio,
+                    selectedCandidateCount,
+                    selectedCandidateStrength,
+                    GetPrimaryCandidateName(primaryCandidate, selectedCandidateCount),
+                    GetPrimaryCandidateCategory(primaryCandidate, selectedCandidateCount),
+                    GetPrimaryCandidateStrength(primaryCandidate, selectedCandidateCount),
+                    GetPrimaryCandidateDistance(primaryCandidate, selectedCandidateCount),
+                    planConfidence,
+                    "Monitoring because plan confidence is below action threshold");
+            }
 
             if (needReport.RecommendedAction == "Monitor")
             {

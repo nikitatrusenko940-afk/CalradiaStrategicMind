@@ -4,6 +4,7 @@ namespace CalradiaStrategicMind.Strategic
     {
         public DefenseDiagnosticsSummary(
             string settlementName,
+            string settlementType,
             string ownerKingdomName,
             string threatType,
             string recommendedAction,
@@ -20,6 +21,7 @@ namespace CalradiaStrategicMind.Strategic
             string reason)
         {
             SettlementName = settlementName;
+            SettlementType = settlementType;
             OwnerKingdomName = ownerKingdomName;
             ThreatType = threatType;
             RecommendedAction = recommendedAction;
@@ -38,7 +40,10 @@ namespace CalradiaStrategicMind.Strategic
 
         public string SettlementName { get; private set; }
 
+        public string SettlementType { get; private set; }
+
         public string OwnerKingdomName { get; private set; }
+
 
         public string ThreatType { get; private set; }
 

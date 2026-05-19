@@ -1,3 +1,4 @@
+using CalradiaStrategicMind.Settings;
 using CalradiaStrategicMind.Utils;
 
 namespace CalradiaStrategicMind.Strategic
@@ -14,6 +15,7 @@ namespace CalradiaStrategicMind.Strategic
                 () => BuildCore(snapshot, actionPlan, stabilityReport),
                 new DefenseDiagnosticsSummary(
                     "unknown",
+                    "Unknown",
                     "unknown",
                     "None",
                     "None",
@@ -37,6 +39,7 @@ namespace CalradiaStrategicMind.Strategic
         {
             return new DefenseDiagnosticsSummary(
                 actionPlan.SettlementName,
+                snapshot.ThreatReport.SettlementType,
                 actionPlan.OwnerKingdomName,
                 GetThreatType(snapshot),
                 actionPlan.RecommendedAction,
@@ -57,12 +60,18 @@ namespace CalradiaStrategicMind.Strategic
         {
             if (snapshot.PriorityReport.HasActiveSiege)
             {
-                return "ActiveSiege";
+                return "Siege";
             }
 
             if (snapshot.CoverageReport.HasDirectSiegeThreat)
             {
-                return "DirectSiegeThreat";
+                return "ImmediateThreat";
+            }
+
+            if (snapshot.CoverageReport.HasArmyPresence
+                && snapshot.PriorityReport.DefensePriority >= DefenseActionThresholdSettings.MinimumUrgentPriority)
+            {
+                return "HighArmyPressure";
             }
 
             if (snapshot.CoverageReport.HasArmyPresence)
@@ -77,7 +86,12 @@ namespace CalradiaStrategicMind.Strategic
 
         private static string GetCoverageStatus(DefenseCoverageReport coverageReport)
         {
-            if (coverageReport.NeedsReinforcement)
+            if (coverageReport.DefenseCoverageRatio <= DefenseActionThresholdSettings.UrgentDefenseCoverageRatioThreshold)
+            {
+                return "Critical";
+            }
+
+            if (coverageReport.DefenseCoverageRatio < DefenseActionThresholdSettings.ReinforcementCoverageRatioThreshold)
             {
                 return "Low";
             }
