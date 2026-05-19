@@ -11,6 +11,7 @@ namespace CalradiaStrategicMind.Strategic
         OperatingOnAssignedTarget,
         ActiveSiegeRedirectBlocked,
         ObjectiveMismatch,
+        RepeatedObjectiveMismatch,
         Stalled,
         Unsafe,
         WaitingAfterCompletedMission,
@@ -34,6 +35,7 @@ namespace CalradiaStrategicMind.Strategic
         public int LastProgressTick { get; set; }
         public int StalledTickCount { get; set; }
         public int SyncAttemptCount { get; set; }
+        public int ConsecutiveObjectiveMismatchTicks { get; set; }
         public int RepathAttemptCount { get; set; }
         public int LastRedirectTick { get; set; }
         public int RedirectCount { get; set; }

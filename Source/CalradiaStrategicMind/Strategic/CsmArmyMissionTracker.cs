@@ -43,6 +43,7 @@ namespace CalradiaStrategicMind.Strategic
                 LastProgressTick = assignment.StartTick,
                 StalledTickCount = 0,
                 SyncAttemptCount = 0,
+                ConsecutiveObjectiveMismatchTicks = 0,
                 RepathAttemptCount = 0,
                 LastRedirectTick = -9999,
                 RedirectCount = 0,
@@ -106,6 +107,20 @@ namespace CalradiaStrategicMind.Strategic
             state.LastState = previousState;
             state.CurrentState = status;
             state.Reason = reason;
+            if (status == CsmArmyMissionStatus.ObjectiveMismatch)
+            {
+                state.ConsecutiveObjectiveMismatchTicks = previousState == CsmArmyMissionStatus.ObjectiveMismatch
+                    ? state.ConsecutiveObjectiveMismatchTicks + 1
+                    : 1;
+            }
+            else if (status == CsmArmyMissionStatus.MovingToTarget
+                || status == CsmArmyMissionStatus.NearTarget
+                || status == CsmArmyMissionStatus.BesiegingAssignedTarget
+                || status == CsmArmyMissionStatus.AssaultingAssignedTarget
+                || status == CsmArmyMissionStatus.OperatingOnAssignedTarget)
+            {
+                state.ConsecutiveObjectiveMismatchTicks = 0;
+            }
 
             if (previousState != status || ShouldLogRedirectGraceReasonChange(state, previousReason))
             {
@@ -147,6 +162,18 @@ namespace CalradiaStrategicMind.Strategic
         {
             var state = GetOrCreateState(assignment);
             return state != null && state.SyncAttemptCount >= ArmyDirectorSettings.MaxObjectiveSyncAttemptsPerAssignment;
+        }
+
+        public int GetSyncAttemptCount(CsmArmyAssignment assignment)
+        {
+            var state = GetOrCreateState(assignment);
+            return state == null ? 0 : state.SyncAttemptCount;
+        }
+
+        public int GetConsecutiveObjectiveMismatchTicks(CsmArmyAssignment assignment)
+        {
+            var state = GetOrCreateState(assignment);
+            return state == null ? 0 : state.ConsecutiveObjectiveMismatchTicks;
         }
 
         public bool HasExceededRepathAttempts(CsmArmyAssignment assignment)
@@ -351,6 +378,7 @@ namespace CalradiaStrategicMind.Strategic
                 || status == CsmArmyMissionStatus.OperatingOnAssignedTarget
                 || status == CsmArmyMissionStatus.ActiveSiegeRedirectBlocked
                 || status == CsmArmyMissionStatus.ObjectiveMismatch
+                || status == CsmArmyMissionStatus.RepeatedObjectiveMismatch
                 || status == CsmArmyMissionStatus.Stalled
                 || status == CsmArmyMissionStatus.WaitingAfterCompletedMission
                 || status == CsmArmyMissionStatus.Unsafe;
