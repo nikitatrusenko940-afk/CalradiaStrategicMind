@@ -64,5 +64,11 @@ namespace CalradiaStrategicMind.Settings
         public static float MaxNearbyEnemyArmyScanDistance = 80f;
         public static float MaxNearbyFriendlySupportScanDistance = 60f;
         public static float MaxFrontlineDistanceFromFriendlyFortification = 90f;
+
+        public static float ExtendedFrontlineAttackTargetDistance = 150f;
+        public static float ExtendedFrontlineRequiredStrengthRatio = 1.70f;
+        public static float ExtendedFrontlineMinimumScore = 120f;
+
+        public static bool AllowExtendedFrontlineTargets = true;
     }
 }
