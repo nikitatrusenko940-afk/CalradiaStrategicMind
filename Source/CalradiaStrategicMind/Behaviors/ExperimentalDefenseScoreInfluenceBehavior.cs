@@ -34,6 +34,7 @@ namespace CalradiaStrategicMind.Behaviors
             SafeExecutor.Run("Experimental defense score influence hourly tick", () =>
             {
                 var report = EvaluateAndApply(party, partyThinkParams);
+                _registry.RecordEvaluation(report);
                 if (ShouldLogReport(report))
                 {
                     LogExperimentalDefenseScoreInfluence(report);
@@ -118,6 +119,11 @@ namespace CalradiaStrategicMind.Behaviors
             if (scoreBoost <= 0f)
             {
                 return CreateReport(currentTick, partyName, scoreReport.SettlementName, true, false, false, false, scoreReport.HypotheticalScore, 0f, "Score boost is zero");
+            }
+
+            if (!_registry.TryRegisterApply(partyName, scoreReport.SettlementName, currentTick))
+            {
+                return CreateReport(currentTick, partyName, scoreReport.SettlementName, true, true, false, true, scoreReport.HypotheticalScore, 0f, "Experimental defense score influence duplicate apply suppressed");
             }
 
             var aiBehaviorData = new AIBehaviorData(
@@ -222,9 +228,19 @@ namespace CalradiaStrategicMind.Behaviors
 
         private bool ShouldLogReport(ExperimentalDefenseScoreInfluenceReport report)
         {
-            if (report.WasAttempted || report.WasApplied)
+            if (IsDuplicateApplySuppressed(report))
             {
-                return true;
+                return false;
+            }
+
+            if (report.WasApplied)
+            {
+                return _registry.ShouldLogReport(report);
+            }
+
+            if (report.WasAttempted)
+            {
+                return _registry.ShouldLogReport(report);
             }
 
             if (!ExperimentalDefenseScoreInfluenceSettings.EnableExperimentalDefenseScoreInfluenceDebugLogs)
@@ -254,6 +270,11 @@ namespace CalradiaStrategicMind.Behaviors
                 return false;
             }
 
+            if (!_registry.ShouldLogReport(report))
+            {
+                return false;
+            }
+
             _debugLogsThisTick++;
             return true;
         }
@@ -268,6 +289,11 @@ namespace CalradiaStrategicMind.Behaviors
                 || reason == "Settlement filter mismatch"
                 || (reason == "No recent score simulation report" && ExperimentalDefenseScoreInfluenceSettings.LogNoRecentScoreSimulationReport)
                 || (reason == "Party is army member and not leader" && ExperimentalDefenseScoreInfluenceSettings.LogArmyMemberSkip);
+        }
+
+        private static bool IsDuplicateApplySuppressed(ExperimentalDefenseScoreInfluenceReport report)
+        {
+            return report.Reason == "Experimental defense score influence duplicate apply suppressed";
         }
 
         private static ExperimentalDefenseScoreInfluenceReport CreateReport(

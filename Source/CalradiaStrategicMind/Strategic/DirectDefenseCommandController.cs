@@ -18,6 +18,11 @@ namespace CalradiaStrategicMind.Strategic
         private readonly List<CsmDefenseAssignmentReport> _pendingAssignmentReports;
         private int _currentTick;
         private int _commandsToday;
+        private int _assignmentCreatedThisTick;
+        private int _assignmentCompletedThisTick;
+        private int _assignmentExpiredThisTick;
+        private int _assignmentInvalidThisTick;
+        private int _assignmentProgressExpiredThisTick;
 
         public DirectDefenseCommandController()
         {
@@ -52,6 +57,34 @@ namespace CalradiaStrategicMind.Strategic
         public int CountActiveAssignments()
         {
             return _assignmentRegistry.CountActiveAssignments();
+        }
+
+        public CsmDefenseAssignmentLifecycleSummary GetAssignmentLifecycleSummary(int observationTick)
+        {
+            return SafeExecutor.Run(
+                "Build CSM defense assignment lifecycle summary",
+                () =>
+                {
+                    ResetDailyStateIfNeeded(observationTick);
+                    return new CsmDefenseAssignmentLifecycleSummary(
+                        observationTick,
+                        _assignmentRegistry.CountActiveAssignments(),
+                        _assignmentCreatedThisTick,
+                        _assignmentCompletedThisTick,
+                        _assignmentExpiredThisTick,
+                        _assignmentInvalidThisTick,
+                        _assignmentProgressExpiredThisTick,
+                        "Defense assignment lifecycle snapshot");
+                },
+                new CsmDefenseAssignmentLifecycleSummary(
+                    observationTick,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    "Defense assignment lifecycle snapshot"));
         }
 
         public bool ReassertDefenseAssignment(MobileParty party, CsmDefenseAssignment assignment, int observationTick, out string reason)
@@ -130,6 +163,7 @@ namespace CalradiaStrategicMind.Strategic
                 {
                     var status = GetClosedAssignmentStatus(assignment, observationTick, invalidReason);
                     _assignmentRegistry.Close(assignment, status, invalidReason);
+                    RecordClosedAssignment(status, false);
                     reports.Add(CreateAssignmentReport(observationTick, assignment, status, false, invalidReason));
                     continue;
                 }
@@ -138,6 +172,7 @@ namespace CalradiaStrategicMind.Strategic
                 if (!string.IsNullOrWhiteSpace(completionReason))
                 {
                     _assignmentRegistry.Close(assignment, "Completed", completionReason);
+                    RecordClosedAssignment("Completed", false);
                     reports.Add(CreateAssignmentReport(observationTick, assignment, "Completed", false, completionReason));
                     continue;
                 }
@@ -146,6 +181,7 @@ namespace CalradiaStrategicMind.Strategic
                 if (!string.IsNullOrWhiteSpace(expiredReason))
                 {
                     _assignmentRegistry.Close(assignment, "Expired", expiredReason);
+                    RecordClosedAssignment("Expired", true);
                     reports.Add(CreateAssignmentReport(observationTick, assignment, "Expired", false, expiredReason));
                     continue;
                 }
@@ -292,8 +328,9 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             DefenseCandidateScore topRejected;
-            var selectedCandidate = _candidateScorer.SelectBest(settlement, snapshot.CandidateReports, candidateName, _assignmentRegistry, armyDirector == null ? null : armyDirector.AssignmentRegistry, out topRejected);
-            LogCandidateScore(observationTick, settlementName, selectedCandidate, topRejected);
+            DefenseCandidateScoringSummary candidateScoringSummary;
+            var selectedCandidate = _candidateScorer.SelectBest(settlement, snapshot.CandidateReports, candidateName, _assignmentRegistry, armyDirector == null ? null : armyDirector.AssignmentRegistry, out topRejected, out candidateScoringSummary);
+            LogCandidateScore(observationTick, settlementName, selectedCandidate, topRejected, candidateScoringSummary);
             if (selectedCandidate == null)
             {
                 return CreateReport(observationTick, settlementName, candidateName, false, topRejected == null ? "Primary candidate not found" : topRejected.Reason);
@@ -319,6 +356,14 @@ namespace CalradiaStrategicMind.Strategic
                 return CreateReport(observationTick, settlementName, commandPartyName, false, partyBlockReason);
             }
 
+            var settlementId = GetSettlementId(settlement);
+            var commandPartyId = GetPartyId(commandParty);
+            if (DefenseAssignmentSettings.EnableDefenseAssignments
+                && _assignmentRegistry.HasActiveAssignment(settlementId, settlementName, commandPartyId, commandPartyName))
+            {
+                return CreateReport(observationTick, settlementName, commandPartyName, false, "Active CSM defense assignment already exists");
+            }
+
             commandParty.SetMoveDefendSettlement(settlement, false, commandParty.NavigationCapability);
 
             _commandsToday++;
@@ -327,19 +372,49 @@ namespace CalradiaStrategicMind.Strategic
             if (DefenseAssignmentSettings.EnableDefenseAssignments)
             {
                 var assignment = _assignmentRegistry.CreateOrUpdate(
-                    GetSettlementId(settlement),
+                    settlementId,
                     settlementName,
-                    GetPartyId(commandParty),
+                    commandPartyId,
                     commandPartyName,
                     observationTick,
                     "Direct defense command created CSM assignment");
                 assignment.OwnerKingdomName = snapshot.ThreatReport.OwnerKingdomName;
                 assignment.LastDistanceToSettlement = settlement.Position.Distance(commandParty.Position);
                 assignment.LastProgressTick = observationTick;
+                if (assignment.Status == "Created")
+                {
+                    _assignmentCreatedThisTick++;
+                }
+
                 _pendingAssignmentReports.Add(CreateAssignmentReport(observationTick, assignment, assignment.Status, true, "Direct defense command created CSM assignment"));
             }
 
             return CreateReport(observationTick, settlementName, snapshot.ThreatReport.OwnerKingdomName, "UrgentDefense", commandPartyName, commandPartyCategory, true, true, "Direct urgent defense command applied");
+        }
+
+        private void RecordClosedAssignment(string status, bool progressExpired)
+        {
+            if (NamesEqual(status, "Completed"))
+            {
+                _assignmentCompletedThisTick++;
+                return;
+            }
+
+            if (NamesEqual(status, "Expired"))
+            {
+                _assignmentExpiredThisTick++;
+                if (progressExpired)
+                {
+                    _assignmentProgressExpiredThisTick++;
+                }
+
+                return;
+            }
+
+            if (NamesEqual(status, "Invalid"))
+            {
+                _assignmentInvalidThisTick++;
+            }
         }
 
         private void ResetDailyStateIfNeeded(int observationTick)
@@ -353,6 +428,11 @@ namespace CalradiaStrategicMind.Strategic
             _commandsToday = 0;
             _settlementCommandCounts.Clear();
             _commandedParties.Clear();
+            _assignmentCreatedThisTick = 0;
+            _assignmentCompletedThisTick = 0;
+            _assignmentExpiredThisTick = 0;
+            _assignmentInvalidThisTick = 0;
+            _assignmentProgressExpiredThisTick = 0;
         }
 
         private static MobileParty GetCommandParty(MobileParty candidate)
@@ -445,7 +525,7 @@ namespace CalradiaStrategicMind.Strategic
             return null;
         }
 
-        private static void LogCandidateScore(int tick, string settlementName, DefenseCandidateScore selected, DefenseCandidateScore rejected)
+        private static void LogCandidateScore(int tick, string settlementName, DefenseCandidateScore selected, DefenseCandidateScore rejected, DefenseCandidateScoringSummary summary)
         {
             if (selected != null)
             {
@@ -458,6 +538,9 @@ namespace CalradiaStrategicMind.Strategic
                 CsmLogger.Info(
                     $"Observed defense candidate rejection: tick={tick}, settlement='{settlementName}', rejectedCandidate='{rejected.CandidateName}', score={rejected.Score:0.00}, distance={rejected.Distance:0.00}, strength={rejected.Strength:0.00}, reason='{rejected.Reason}'");
             }
+
+            CsmLogger.Info(
+                $"Observed defense candidate scoring summary: tick={tick}, settlement='{summary.SettlementName}', evaluatedCandidates={summary.EvaluatedCandidates}, validCandidates={summary.ValidCandidates}, rejectedCandidates={summary.RejectedCandidates}, rejectedByArmyAssignment={summary.RejectedByArmyAssignment}, rejectedByDefenseAssignment={summary.RejectedByDefenseAssignment}, rejectedTooFar={summary.RejectedTooFar}, rejectedTooWeak={summary.RejectedTooWeak}, selectedCandidate='{summary.SelectedCandidate}', reason='{summary.Reason}'");
         }
 
         private static PartyObservationCategory GetCommandPartyCategory(MobileParty party)

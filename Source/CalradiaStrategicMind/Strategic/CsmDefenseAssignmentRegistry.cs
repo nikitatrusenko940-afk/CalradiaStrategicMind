@@ -80,6 +80,12 @@ namespace CalradiaStrategicMind.Strategic
             return GetActiveAssignmentForParty(partyId, partyName) != null;
         }
 
+        public bool HasActiveAssignment(string settlementId, string settlementName, string partyId, string partyName)
+        {
+            var key = CreateKey(settlementId, settlementName, partyId, partyName);
+            return _activeAssignments.ContainsKey(key);
+        }
+
         public CsmDefenseAssignment GetActiveAssignmentForParty(string partyId, string partyName)
         {
             foreach (var assignment in _activeAssignments.Values)
@@ -279,6 +285,45 @@ namespace CalradiaStrategicMind.Strategic
         public string Status { get; private set; }
 
         public bool CommandApplied { get; private set; }
+
+        public string Reason { get; private set; }
+    }
+
+    public struct CsmDefenseAssignmentLifecycleSummary
+    {
+        public CsmDefenseAssignmentLifecycleSummary(
+            int observationTick,
+            int activeAssignments,
+            int created,
+            int completed,
+            int expired,
+            int invalid,
+            int progressExpired,
+            string reason)
+        {
+            ObservationTick = observationTick;
+            ActiveAssignments = activeAssignments;
+            Created = created;
+            Completed = completed;
+            Expired = expired;
+            Invalid = invalid;
+            ProgressExpired = progressExpired;
+            Reason = reason;
+        }
+
+        public int ObservationTick { get; private set; }
+
+        public int ActiveAssignments { get; private set; }
+
+        public int Created { get; private set; }
+
+        public int Completed { get; private set; }
+
+        public int Expired { get; private set; }
+
+        public int Invalid { get; private set; }
+
+        public int ProgressExpired { get; private set; }
 
         public string Reason { get; private set; }
     }
