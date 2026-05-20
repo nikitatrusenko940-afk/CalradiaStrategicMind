@@ -20,9 +20,12 @@ namespace CalradiaStrategicMind.Strategic
         private int _commandsToday;
         private int _assignmentCreatedThisTick;
         private int _assignmentCompletedThisTick;
+        private int _assignmentDeescalatedThisTick;
         private int _assignmentExpiredThisTick;
         private int _assignmentInvalidThisTick;
         private int _assignmentProgressExpiredThisTick;
+        private int _duplicateAssignmentBlockedThisTick;
+        private int _reassertedAssignmentsThisTick;
 
         public DirectDefenseCommandController()
         {
@@ -71,13 +74,21 @@ namespace CalradiaStrategicMind.Strategic
                         _assignmentRegistry.CountActiveAssignments(),
                         _assignmentCreatedThisTick,
                         _assignmentCompletedThisTick,
+                        _assignmentDeescalatedThisTick,
                         _assignmentExpiredThisTick,
                         _assignmentInvalidThisTick,
                         _assignmentProgressExpiredThisTick,
-                        "Defense assignment lifecycle snapshot");
+                        _duplicateAssignmentBlockedThisTick,
+                        _reassertedAssignmentsThisTick,
+                        DefenseControllerSettings.EnableDefenseControllerV2
+                            ? "Defense assignment lifecycle v2 snapshot"
+                            : "Defense assignment lifecycle snapshot");
                 },
                 new CsmDefenseAssignmentLifecycleSummary(
                     observationTick,
+                    0,
+                    0,
+                    0,
                     0,
                     0,
                     0,
@@ -173,6 +184,12 @@ namespace CalradiaStrategicMind.Strategic
                 {
                     _assignmentRegistry.Close(assignment, "Completed", completionReason);
                     RecordClosedAssignment("Completed", false);
+                    if (NamesEqual(completionReason, "Settlement defense coverage is enough")
+                        || NamesEqual(completionReason, "Settlement no longer has urgent defense threat"))
+                    {
+                        _assignmentDeescalatedThisTick++;
+                    }
+
                     reports.Add(CreateAssignmentReport(observationTick, assignment, "Completed", false, completionReason));
                     continue;
                 }
@@ -193,6 +210,7 @@ namespace CalradiaStrategicMind.Strategic
 
                 party.SetMoveDefendSettlement(settlement, false, party.NavigationCapability);
                 _assignmentRegistry.MarkReasserted(assignment, observationTick, "Defense assignment reasserted because candidate target changed");
+                _reassertedAssignmentsThisTick++;
                 reports.Add(CreateAssignmentReport(observationTick, assignment, "Reasserted", true, "Defense assignment reasserted because candidate target changed"));
             }
 
@@ -212,6 +230,7 @@ namespace CalradiaStrategicMind.Strategic
 
             var settlementName = snapshot.ThreatReport.SettlementName;
             var candidateName = actionPlan.PrimaryCandidateName;
+            var actionTier = GetActionTier(snapshot, actionPlan, stabilityReport);
             if (!DefenseControllerSettings.EnableRealDefenseController || !DefenseActionThresholdSettings.EnableRealDefenseController)
             {
                 return CreateReport(observationTick, settlementName, candidateName, false, "Real defense controller disabled");
@@ -238,6 +257,12 @@ namespace CalradiaStrategicMind.Strategic
                 return CreateReport(observationTick, settlementName, candidateName, false, "Action is not urgent defense");
             }
 
+            if (DefenseControllerSettings.EnableDefenseControllerV2
+                && (NamesEqual(actionTier, "Monitor") || NamesEqual(actionTier, "ReinforcementNeeded")))
+            {
+                return CreateReport(observationTick, settlementName, candidateName, false, actionTier + " does not execute direct defense command");
+            }
+
             if (!DefenseActionThresholdSettings.AllowUrgentDefenseCommands)
             {
                 return CreateReport(observationTick, settlementName, candidateName, false, "Urgent defense commands disabled");
@@ -248,9 +273,9 @@ namespace CalradiaStrategicMind.Strategic
                 return CreateReport(observationTick, settlementName, candidateName, false, "Recommended action is not UrgentDefense");
             }
 
-            if (!IsCriticalCoverage(snapshot.CoverageReport))
+            if (!DefenseControllerSettings.EnableDefenseControllerV2 && !IsCriticalCoverage(snapshot.CoverageReport))
             {
-                return CreateReport(observationTick, settlementName, candidateName, false, "Coverage is not critical");
+                return CreateReport(observationTick, settlementName, candidateName, false, "Legacy controller requires critical coverage");
             }
 
             if (actionPlan.DefensePriority < DefenseActionThresholdSettings.MinimumDefensePriorityToAct)
@@ -268,9 +293,14 @@ namespace CalradiaStrategicMind.Strategic
                 return CreateReport(observationTick, settlementName, candidateName, false, "Dry-run would-act signal required");
             }
 
+            if (!safetyReport.Allowed)
+            {
+                return CreateReport(observationTick, settlementName, candidateName, false, "Safety guard blocked execution");
+            }
+
             if (DefenseActionThresholdSettings.RequireStableDefenseSignal
                 && (!IsUrgentDefenseAction(stabilityReport.StableAction)
-                    || stabilityReport.ConsecutiveSameActionCount < DefenseActionThresholdSettings.RequiredStableDefenseTicks))
+                    || stabilityReport.ConsecutiveSameActionCount < GetRequiredStableUrgentTicks()))
             {
                 return CreateReport(observationTick, settlementName, candidateName, false, "Stable urgent defense signal required");
             }
@@ -294,6 +324,12 @@ namespace CalradiaStrategicMind.Strategic
             if (settlement == null)
             {
                 return CreateReport(observationTick, settlementName, candidateName, false, "Settlement not found");
+            }
+
+            var coverageBlockReason = GetCoverageExecutionBlockReason(snapshot, actionPlan, null);
+            if (!string.IsNullOrWhiteSpace(coverageBlockReason))
+            {
+                return CreateReport(observationTick, settlementName, candidateName, false, coverageBlockReason);
             }
 
             if (!settlement.IsCastle && !settlement.IsTown)
@@ -324,16 +360,23 @@ namespace CalradiaStrategicMind.Strategic
             var activeAssignment = GetValidActiveAssignmentForSettlement(snapshot, settlement, observationTick);
             if (activeAssignment != null)
             {
+                _duplicateAssignmentBlockedThisTick++;
                 return CreateReport(observationTick, settlementName, activeAssignment.PartyName, false, "Active CSM defense assignment already exists");
             }
 
             DefenseCandidateScore topRejected;
             DefenseCandidateScoringSummary candidateScoringSummary;
-            var selectedCandidate = _candidateScorer.SelectBest(settlement, snapshot.CandidateReports, candidateName, _assignmentRegistry, armyDirector == null ? null : armyDirector.AssignmentRegistry, out topRejected, out candidateScoringSummary);
-            LogCandidateScore(observationTick, settlementName, selectedCandidate, topRejected, candidateScoringSummary);
+            var selectedCandidate = _candidateScorer.SelectBest(settlement, snapshot.CandidateReports, candidateName, _assignmentRegistry, armyDirector == null ? null : armyDirector.AssignmentRegistry, actionTier, out topRejected, out candidateScoringSummary);
+            LogCandidateScore(observationTick, actionTier, selectedCandidate, topRejected, candidateScoringSummary);
             if (selectedCandidate == null)
             {
-                return CreateReport(observationTick, settlementName, candidateName, false, topRejected == null ? "Primary candidate not found" : topRejected.Reason);
+                return CreateReport(observationTick, settlementName, candidateName, false, GetCandidateRejectedReason(topRejected));
+            }
+
+            coverageBlockReason = GetCoverageExecutionBlockReason(snapshot, actionPlan, selectedCandidate);
+            if (!string.IsNullOrWhiteSpace(coverageBlockReason))
+            {
+                return CreateReport(observationTick, settlementName, selectedCandidate.CandidateName, false, coverageBlockReason);
             }
 
             var candidate = selectedCandidate.Party;
@@ -361,6 +404,7 @@ namespace CalradiaStrategicMind.Strategic
             if (DefenseAssignmentSettings.EnableDefenseAssignments
                 && _assignmentRegistry.HasActiveAssignment(settlementId, settlementName, commandPartyId, commandPartyName))
             {
+                _duplicateAssignmentBlockedThisTick++;
                 return CreateReport(observationTick, settlementName, commandPartyName, false, "Active CSM defense assignment already exists");
             }
 
@@ -389,7 +433,7 @@ namespace CalradiaStrategicMind.Strategic
                 _pendingAssignmentReports.Add(CreateAssignmentReport(observationTick, assignment, assignment.Status, true, "Direct defense command created CSM assignment"));
             }
 
-            return CreateReport(observationTick, settlementName, snapshot.ThreatReport.OwnerKingdomName, "UrgentDefense", commandPartyName, commandPartyCategory, true, true, "Direct urgent defense command applied");
+            return CreateReport(observationTick, settlementName, snapshot.ThreatReport.OwnerKingdomName, actionTier, commandPartyName, commandPartyCategory, true, true, "Direct urgent defense command applied");
         }
 
         private void RecordClosedAssignment(string status, bool progressExpired)
@@ -417,6 +461,135 @@ namespace CalradiaStrategicMind.Strategic
             }
         }
 
+        private static string GetActionTier(
+            DefenseEvaluationSnapshot snapshot,
+            DefenseActionPlan actionPlan,
+            DryRunDefenseDecisionStabilityReport stabilityReport)
+        {
+            if (!DefenseControllerSettings.EnableDefenseControllerV2)
+            {
+                return IsUrgentDefenseAction(actionPlan.RecommendedAction) ? "UrgentDefense" : "Monitor";
+            }
+
+            if (!actionPlan.NeedsDefenseAction || NamesEqual(actionPlan.RecommendedAction, "Monitor") || NamesEqual(actionPlan.RecommendedAction, "None"))
+            {
+                return "Monitor";
+            }
+
+            if (!IsUrgentDefenseAction(actionPlan.RecommendedAction))
+            {
+                return "ReinforcementNeeded";
+            }
+
+            if (DefenseControllerSettings.EnableCriticalDefenseTier
+                && snapshot.ThreatReport.HasActiveSiege
+                && IsCriticalCoverage(snapshot.CoverageReport)
+                && IsThreatClearlyHigherThanDefense(snapshot.CoverageReport)
+                && IsStableUrgentSignal(stabilityReport))
+            {
+                return "CriticalDefense";
+            }
+
+            return "UrgentDefense";
+        }
+
+        private static string GetCoverageExecutionBlockReason(
+            DefenseEvaluationSnapshot snapshot,
+            DefenseActionPlan actionPlan,
+            DefenseCandidateScore selectedCandidate)
+        {
+            if (!DefenseControllerSettings.EnableCoverageAwareDefenseExecution)
+            {
+                return null;
+            }
+
+            if (snapshot.CoverageReport.IsDefenseEnough || NamesEqual(GetCoverageStatus(snapshot.CoverageReport), "Enough"))
+            {
+                return "Coverage already sufficient";
+            }
+
+            if (snapshot.CoverageReport.ExplicitDefenderCount > 0
+                && snapshot.CoverageReport.DefenseCoverageRatio >= DefenseControllerSettings.LowDefenseCoverageRatio)
+            {
+                return "Existing defenders already cover threat";
+            }
+
+            if (selectedCandidate == null)
+            {
+                return null;
+            }
+
+            var estimatedCoverage = EstimateCoverageAfterCandidate(snapshot.CoverageReport, selectedCandidate);
+            var improvesCoverage = estimatedCoverage - snapshot.CoverageReport.DefenseCoverageRatio >= DefenseControllerSettings.MinimumCandidateCoverageImprovement;
+            if (NamesEqual(GetCoverageStatus(snapshot.CoverageReport), "Low") && !improvesCoverage)
+            {
+                return "Candidate does not improve coverage";
+            }
+
+            return null;
+        }
+
+        private static float EstimateCoverageAfterCandidate(DefenseCoverageReport coverageReport, DefenseCandidateScore selectedCandidate)
+        {
+            if (coverageReport.RequiredThreatStrength <= 0f || selectedCandidate == null)
+            {
+                return coverageReport.DefenseCoverageRatio;
+            }
+
+            return (coverageReport.AvailableDefenseStrength + selectedCandidate.HealthyStrength) / coverageReport.RequiredThreatStrength;
+        }
+
+        private static bool IsThreatClearlyHigherThanDefense(DefenseCoverageReport coverageReport)
+        {
+            if (coverageReport.RequiredThreatStrength <= 0f)
+            {
+                return coverageReport.DefenseCoverageRatio <= DefenseControllerSettings.CriticalDefenseCoverageRatio;
+            }
+
+            return coverageReport.RequiredThreatStrength > coverageReport.AvailableDefenseStrength * 1.25f;
+        }
+
+        private static bool IsStableUrgentSignal(DryRunDefenseDecisionStabilityReport stabilityReport)
+        {
+            return IsUrgentDefenseAction(stabilityReport.StableAction)
+                && stabilityReport.ConsecutiveSameActionCount >= GetRequiredStableUrgentTicks();
+        }
+
+        private static string GetCoverageStatus(DefenseCoverageReport coverageReport)
+        {
+            if (coverageReport.DefenseCoverageRatio <= DefenseControllerSettings.CriticalDefenseCoverageRatio)
+            {
+                return "Critical";
+            }
+
+            if (coverageReport.DefenseCoverageRatio < DefenseControllerSettings.LowDefenseCoverageRatio)
+            {
+                return "Low";
+            }
+
+            return coverageReport.IsDefenseEnough ? "Enough" : "Unknown";
+        }
+
+        private static string GetCandidateRejectedReason(DefenseCandidateScore topRejected)
+        {
+            if (topRejected == null)
+            {
+                return "Primary candidate not found";
+            }
+
+            if (topRejected.RejectionCategory == "ArmyAssignment")
+            {
+                return "Candidate rejected by active CSM army assignment";
+            }
+
+            if (topRejected.RejectionCategory == "DefenseAssignment")
+            {
+                return "Candidate rejected by active CSM defense assignment";
+            }
+
+            return topRejected.Reason;
+        }
+
         private void ResetDailyStateIfNeeded(int observationTick)
         {
             if (_currentTick == observationTick)
@@ -430,9 +603,12 @@ namespace CalradiaStrategicMind.Strategic
             _commandedParties.Clear();
             _assignmentCreatedThisTick = 0;
             _assignmentCompletedThisTick = 0;
+            _assignmentDeescalatedThisTick = 0;
             _assignmentExpiredThisTick = 0;
             _assignmentInvalidThisTick = 0;
             _assignmentProgressExpiredThisTick = 0;
+            _duplicateAssignmentBlockedThisTick = 0;
+            _reassertedAssignmentsThisTick = 0;
         }
 
         private static MobileParty GetCommandParty(MobileParty candidate)
@@ -525,22 +701,22 @@ namespace CalradiaStrategicMind.Strategic
             return null;
         }
 
-        private static void LogCandidateScore(int tick, string settlementName, DefenseCandidateScore selected, DefenseCandidateScore rejected, DefenseCandidateScoringSummary summary)
+        private static void LogCandidateScore(int tick, string actionTier, DefenseCandidateScore selected, DefenseCandidateScore rejected, DefenseCandidateScoringSummary summary)
         {
             if (selected != null)
             {
                 CsmLogger.Info(
-                    $"Observed defense candidate score: tick={tick}, settlement='{settlementName}', selectedCandidate='{selected.CandidateName}', score={selected.Score:0.00}, distance={selected.Distance:0.00}, strength={selected.Strength:0.00}, category={selected.CandidateCategory}, reason='{selected.Reason}'");
+                    $"Observed defense candidate score: tick={tick}, settlement='{summary.SettlementName}', actionTier='{actionTier}', selectedCandidate='{selected.CandidateName}', score={selected.Score:0.00}, distance={selected.Distance:0.00}, strength={selected.Strength:0.00}, distanceScore={selected.DistanceScore:0.00}, strengthScore={selected.StrengthScore:0.00}, availabilityScore={selected.AvailabilityScore:0.00}, intentScore={selected.IntentScore:0.00}, criticalDefenseSpeedScore={selected.CriticalDefenseSpeedScore:0.00}, category={selected.CandidateCategory}, reason='{selected.Reason}'");
             }
 
             if (rejected != null)
             {
                 CsmLogger.Info(
-                    $"Observed defense candidate rejection: tick={tick}, settlement='{settlementName}', rejectedCandidate='{rejected.CandidateName}', score={rejected.Score:0.00}, distance={rejected.Distance:0.00}, strength={rejected.Strength:0.00}, reason='{rejected.Reason}'");
+                    $"Observed defense candidate rejection: tick={tick}, settlement='{summary.SettlementName}', actionTier='{actionTier}', rejectedCandidate='{rejected.CandidateName}', score={rejected.Score:0.00}, distance={rejected.Distance:0.00}, strength={rejected.Strength:0.00}, rejectionCategory='{rejected.RejectionCategory}', reason='{rejected.Reason}'");
             }
 
             CsmLogger.Info(
-                $"Observed defense candidate scoring summary: tick={tick}, settlement='{summary.SettlementName}', evaluatedCandidates={summary.EvaluatedCandidates}, validCandidates={summary.ValidCandidates}, rejectedCandidates={summary.RejectedCandidates}, rejectedByArmyAssignment={summary.RejectedByArmyAssignment}, rejectedByDefenseAssignment={summary.RejectedByDefenseAssignment}, rejectedTooFar={summary.RejectedTooFar}, rejectedTooWeak={summary.RejectedTooWeak}, selectedCandidate='{summary.SelectedCandidate}', reason='{summary.Reason}'");
+                $"Observed defense candidate scoring summary: tick={tick}, settlement='{summary.SettlementName}', actionTier='{actionTier}', evaluatedCandidates={summary.EvaluatedCandidates}, validCandidates={summary.ValidCandidates}, rejectedCandidates={summary.RejectedCandidates}, rejectedByArmyAssignment={summary.RejectedByArmyAssignment}, rejectedByDefenseAssignment={summary.RejectedByDefenseAssignment}, rejectedTooFar={summary.RejectedTooFar}, rejectedTooWeak={summary.RejectedTooWeak}, rejectedWrongFaction={summary.RejectedWrongFaction}, rejectedInvalid={summary.RejectedInvalid}, rejectedAlreadyDefendingDifferentSettlement={summary.RejectedAlreadyDefendingDifferentSettlement}, selectedCandidate='{summary.SelectedCandidate}', selectedCandidateScore={summary.SelectedCandidateScore:0.00}, selectedCandidateDistance={summary.SelectedCandidateDistance:0.00}, selectedCandidateStrength={summary.SelectedCandidateStrength:0.00}, reason='{summary.Reason}'");
         }
 
         private static PartyObservationCategory GetCommandPartyCategory(MobileParty party)
@@ -639,6 +815,11 @@ namespace CalradiaStrategicMind.Strategic
             if (party.MapEvent != null)
             {
                 return "Assigned party is in battle";
+            }
+
+            if (party.Army != null && party.Army.LeaderParty != party)
+            {
+                return "Assigned party joined army as non-leader";
             }
 
             if (settlement.MapFaction == null || party.MapFaction != settlement.MapFaction)
@@ -800,7 +981,24 @@ namespace CalradiaStrategicMind.Strategic
 
         private static bool IsCriticalCoverage(DefenseCoverageReport coverageReport)
         {
+            if (DefenseControllerSettings.EnableDefenseControllerV2)
+            {
+                return coverageReport.DefenseCoverageRatio <= DefenseControllerSettings.CriticalDefenseCoverageRatio;
+            }
+
             return coverageReport.DefenseCoverageRatio <= DefenseActionThresholdSettings.CriticalCoverageRatio;
+        }
+
+        private static int GetRequiredStableUrgentTicks()
+        {
+            if (!DefenseControllerSettings.EnableDefenseControllerV2)
+            {
+                return DefenseActionThresholdSettings.RequiredStableDefenseTicks;
+            }
+
+            return DefenseControllerSettings.MinimumStableUrgentTicksForDirectCommand < 1
+                ? 1
+                : DefenseControllerSettings.MinimumStableUrgentTicksForDirectCommand;
         }
 
         private int GetSettlementCommandCount(string settlementName)

@@ -11,6 +11,11 @@ namespace CalradiaStrategicMind.Strategic
         public float Distance { get; set; }
         public float Strength { get; set; }
         public float HealthyStrength { get; set; }
+        public float DistanceScore { get; set; }
+        public float StrengthScore { get; set; }
+        public float AvailabilityScore { get; set; }
+        public float IntentScore { get; set; }
+        public float CriticalDefenseSpeedScore { get; set; }
         public bool IsRejected { get; set; }
         public string RejectionCategory { get; set; }
         public string Reason { get; set; }
@@ -27,7 +32,13 @@ namespace CalradiaStrategicMind.Strategic
             int rejectedByDefenseAssignment,
             int rejectedTooFar,
             int rejectedTooWeak,
+            int rejectedWrongFaction,
+            int rejectedInvalid,
+            int rejectedAlreadyDefendingDifferentSettlement,
             string selectedCandidate,
+            float selectedCandidateScore,
+            float selectedCandidateDistance,
+            float selectedCandidateStrength,
             string reason)
         {
             SettlementName = settlementName;
@@ -38,7 +49,13 @@ namespace CalradiaStrategicMind.Strategic
             RejectedByDefenseAssignment = rejectedByDefenseAssignment;
             RejectedTooFar = rejectedTooFar;
             RejectedTooWeak = rejectedTooWeak;
+            RejectedWrongFaction = rejectedWrongFaction;
+            RejectedInvalid = rejectedInvalid;
+            RejectedAlreadyDefendingDifferentSettlement = rejectedAlreadyDefendingDifferentSettlement;
             SelectedCandidate = selectedCandidate;
+            SelectedCandidateScore = selectedCandidateScore;
+            SelectedCandidateDistance = selectedCandidateDistance;
+            SelectedCandidateStrength = selectedCandidateStrength;
             Reason = reason;
         }
 
@@ -58,7 +75,19 @@ namespace CalradiaStrategicMind.Strategic
 
         public int RejectedTooWeak { get; private set; }
 
+        public int RejectedWrongFaction { get; private set; }
+
+        public int RejectedInvalid { get; private set; }
+
+        public int RejectedAlreadyDefendingDifferentSettlement { get; private set; }
+
         public string SelectedCandidate { get; private set; }
+
+        public float SelectedCandidateScore { get; private set; }
+
+        public float SelectedCandidateDistance { get; private set; }
+
+        public float SelectedCandidateStrength { get; private set; }
 
         public string Reason { get; private set; }
     }

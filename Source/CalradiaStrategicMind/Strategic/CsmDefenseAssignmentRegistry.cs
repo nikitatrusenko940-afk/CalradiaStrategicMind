@@ -296,18 +296,24 @@ namespace CalradiaStrategicMind.Strategic
             int activeAssignments,
             int created,
             int completed,
+            int deescalated,
             int expired,
             int invalid,
             int progressExpired,
+            int duplicateAssignmentBlocked,
+            int reassertedAssignments,
             string reason)
         {
             ObservationTick = observationTick;
             ActiveAssignments = activeAssignments;
             Created = created;
             Completed = completed;
+            Deescalated = deescalated;
             Expired = expired;
             Invalid = invalid;
             ProgressExpired = progressExpired;
+            DuplicateAssignmentBlocked = duplicateAssignmentBlocked;
+            ReassertedAssignments = reassertedAssignments;
             Reason = reason;
         }
 
@@ -319,11 +325,17 @@ namespace CalradiaStrategicMind.Strategic
 
         public int Completed { get; private set; }
 
+        public int Deescalated { get; private set; }
+
         public int Expired { get; private set; }
 
         public int Invalid { get; private set; }
 
         public int ProgressExpired { get; private set; }
+
+        public int DuplicateAssignmentBlocked { get; private set; }
+
+        public int ReassertedAssignments { get; private set; }
 
         public string Reason { get; private set; }
     }
