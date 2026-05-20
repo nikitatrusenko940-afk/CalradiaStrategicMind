@@ -30,7 +30,7 @@ namespace CalradiaStrategicMind.Strategic
 
             if (!IsUrgentDefenseAction(actionPlan.RecommendedAction))
             {
-                return CreateDecision(summary, actionPlan, dryRunDecision, true, false, actionPlan.RecommendedAction, "Only urgent defense is executable in v1");
+                return CreateDecision(summary, actionPlan, dryRunDecision, true, false, actionPlan.RecommendedAction, "Only urgent or critical defense tiers are executable");
             }
 
             return CreateDecision(summary, actionPlan, dryRunDecision, true, true, "UrgentDefense", "Urgent defense controller activation candidate");

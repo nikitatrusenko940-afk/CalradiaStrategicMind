@@ -765,7 +765,15 @@ namespace CalradiaStrategicMind.Behaviors
         {
             return string.Equals(reason, "Stable urgent defense signal required", System.StringComparison.OrdinalIgnoreCase)
                 || string.Equals(reason, "Controller execution blocked", System.StringComparison.OrdinalIgnoreCase)
-                || string.Equals(reason, "No stable urgent defense dry-run signal", System.StringComparison.OrdinalIgnoreCase);
+                || string.Equals(reason, "No stable urgent defense dry-run signal", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(reason, "Safety guard blocked execution", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(reason, "Coverage already sufficient", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(reason, "Existing defenders already cover threat", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(reason, "Candidate does not improve coverage", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(reason, "Candidate rejected by active CSM army assignment", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(reason, "Candidate rejected by active CSM defense assignment", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(reason, "Candidate too far for critical defense", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(reason, "Candidate too weak for urgent defense", System.StringComparison.OrdinalIgnoreCase);
         }
 
         private static void LogDirectDefenseCommand(DirectDefenseCommandReport report)
@@ -816,7 +824,7 @@ namespace CalradiaStrategicMind.Behaviors
         private static void LogDefenseAssignmentLifecycle(CsmDefenseAssignmentLifecycleSummary summary)
         {
             CsmLogger.Info(
-                $"Observed defense assignment lifecycle: tick={summary.ObservationTick}, activeAssignments={summary.ActiveAssignments}, created={summary.Created}, completed={summary.Completed}, expired={summary.Expired}, invalid={summary.Invalid}, progressExpired={summary.ProgressExpired}, reason='{summary.Reason}'");
+                $"Observed defense assignment lifecycle: tick={summary.ObservationTick}, activeAssignments={summary.ActiveAssignments}, created={summary.Created}, completed={summary.Completed}, deescalated={summary.Deescalated}, expired={summary.Expired}, invalid={summary.Invalid}, progressExpired={summary.ProgressExpired}, duplicateAssignmentBlocked={summary.DuplicateAssignmentBlocked}, reassertedAssignments={summary.ReassertedAssignments}, reason='{summary.Reason}'");
         }
 
         private DryRunDefenseDecisionStabilityReport GetDryRunStabilityReport(DryRunDefenseDecision decision)
