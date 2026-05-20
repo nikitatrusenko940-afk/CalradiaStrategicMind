@@ -7,6 +7,8 @@ namespace CalradiaStrategicMind.Settings
         public static bool LogNoRecentScoreSimulationReport = false;
         public static bool LogArmyMemberSkip = false;
         public static int MaxExperimentalDebugLogsPerTick = 5;
+        public static bool EnableExperimentalDefenseInfluenceApplyThrottle = true;
+        public static int ExperimentalDefenseInfluenceLogCooldownTicks = 1;
         public static bool RequireSettlementNameFilter = false;
         public static string SettlementNameFilter = "";
         public static float MaxScoreBoost = 5f;

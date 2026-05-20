@@ -221,6 +221,7 @@ namespace CalradiaStrategicMind.Behaviors
             _dryRunDefenseReportAggregator.BeginTick(_observationTick);
             _defenseScoreSimulationSummaryBuilder.BeginTick(_observationTick);
             _experimentalDefenseScoreInfluenceRegistry.BeginTick(_observationTick);
+            LogExperimentalDefenseScoreInfluenceSummaryIfAvailable();
             if (_nextSettlementIndex < 0 || _nextSettlementIndex >= settlements.Count)
             {
                 _nextSettlementIndex = 0;
@@ -303,6 +304,7 @@ namespace CalradiaStrategicMind.Behaviors
             }
 
             ObserveArmies(defenseSnapshots);
+            LogDefenseAssignmentLifecycle(_directDefenseCommandController.GetAssignmentLifecycleSummary(_observationTick));
         }
 
         private bool ObserveDefenseSettlement(Settlement settlement, DefenseEvaluationSnapshot? existingSnapshot, List<DefenseEvaluationSnapshot> defenseSnapshots)
@@ -701,6 +703,17 @@ namespace CalradiaStrategicMind.Behaviors
 
         private void LogDefenseCommand(DefenseCommandReport report)
         {
+            if (ShouldLogDefenseCommandGate(report))
+            {
+                LogDefenseCommandGate(report);
+                return;
+            }
+
+            if (!ShouldLogFullDefenseCommand(report))
+            {
+                return;
+            }
+
             CsmLogger.Info(
                 $"Observed defense command: tick={_observationTick}, settlement='{report.SettlementName}', owner='{report.OwnerKingdomName}', commandType='{report.CommandType}', candidate='{report.CandidateName}', candidateCategory={report.CandidateCategory}, isAllowed={report.IsAllowed}, wasExecuted={report.WasExecuted}, reason='{report.Reason}'");
         }
@@ -712,7 +725,47 @@ namespace CalradiaStrategicMind.Behaviors
                 return true;
             }
 
-            return report.CommandType != "RequestReinforcement";
+            if (ShouldLogDefenseCommandGate(report))
+            {
+                return true;
+            }
+
+            return report.CommandType != "RequestReinforcement"
+                && ShouldLogFullDefenseCommand(report);
+        }
+
+        private void LogDefenseCommandGate(DefenseCommandReport report)
+        {
+            CsmLogger.Info(
+                $"Observed defense command gate: tick={_observationTick}, settlement='{report.SettlementName}', action='{report.CommandType}', candidate='{report.CandidateName}', allowed={report.IsAllowed}, reason='{report.Reason}'");
+        }
+
+        private static bool ShouldLogDefenseCommandGate(DefenseCommandReport report)
+        {
+            return !report.WasExecuted
+                && !HasValidOwner(report.OwnerKingdomName)
+                && report.CandidateCategory == PartyObservationCategory.Unknown
+                && IsDefenseCommandGateReason(report.Reason);
+        }
+
+        private static bool ShouldLogFullDefenseCommand(DefenseCommandReport report)
+        {
+            return report.WasExecuted
+                || (HasValidOwner(report.OwnerKingdomName)
+                    && report.CandidateCategory != PartyObservationCategory.Unknown);
+        }
+
+        private static bool HasValidOwner(string ownerKingdomName)
+        {
+            return !string.IsNullOrWhiteSpace(ownerKingdomName)
+                && !string.Equals(ownerKingdomName, "unknown", System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsDefenseCommandGateReason(string reason)
+        {
+            return string.Equals(reason, "Stable urgent defense signal required", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(reason, "Controller execution blocked", System.StringComparison.OrdinalIgnoreCase)
+                || string.Equals(reason, "No stable urgent defense dry-run signal", System.StringComparison.OrdinalIgnoreCase);
         }
 
         private static void LogDirectDefenseCommand(DirectDefenseCommandReport report)
@@ -746,6 +799,24 @@ namespace CalradiaStrategicMind.Behaviors
         {
             CsmLogger.Info(
                 $"Observed defense score simulation summary: tick={summary.ObservationTick}, totalScoreSimulations={summary.TotalScoreSimulations}, blockedBySafetyCount={summary.BlockedBySafetyCount}, wouldAddScoreCount={summary.WouldAddScoreCount}, maxHypotheticalScore={summary.MaxHypotheticalScore:0.00}, averageHypotheticalScore={summary.AverageHypotheticalScore:0.00}, topScoreSettlement='{summary.TopScoreSettlementName}', topScoreCandidate='{summary.TopScoreCandidateName}', topScoreCandidateCategory={summary.TopScoreCandidateCategory}, topScoreRecommendedAction='{summary.TopScoreRecommendedAction}', topScoreReason='{summary.TopScoreReason}', reason='{summary.Reason}'");
+        }
+
+        private void LogExperimentalDefenseScoreInfluenceSummaryIfAvailable()
+        {
+            ExperimentalDefenseScoreInfluenceSummary summary;
+            if (!_experimentalDefenseScoreInfluenceRegistry.TryConsumeCompletedSummary(out summary))
+            {
+                return;
+            }
+
+            CsmLogger.Info(
+                $"Observed experimental defense score influence summary: tick={summary.ObservationTick}, attempted={summary.Attempted}, applied={summary.Applied}, suppressedDuplicateApplies={summary.SuppressedDuplicateApplies}, suppressedDuplicateLogs={summary.SuppressedDuplicateLogs}, reason='{summary.Reason}'");
+        }
+
+        private static void LogDefenseAssignmentLifecycle(CsmDefenseAssignmentLifecycleSummary summary)
+        {
+            CsmLogger.Info(
+                $"Observed defense assignment lifecycle: tick={summary.ObservationTick}, activeAssignments={summary.ActiveAssignments}, created={summary.Created}, completed={summary.Completed}, expired={summary.Expired}, invalid={summary.Invalid}, progressExpired={summary.ProgressExpired}, reason='{summary.Reason}'");
         }
 
         private DryRunDefenseDecisionStabilityReport GetDryRunStabilityReport(DryRunDefenseDecision decision)

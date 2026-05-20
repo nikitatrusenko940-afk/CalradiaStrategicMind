@@ -15,11 +15,19 @@ namespace CalradiaStrategicMind.Strategic
             string fallbackCandidateName,
             CsmDefenseAssignmentRegistry defenseAssignments,
             CsmArmyAssignmentRegistry armyAssignments,
-            out DefenseCandidateScore topRejected)
+            out DefenseCandidateScore topRejected,
+            out DefenseCandidateScoringSummary scoringSummary)
         {
             topRejected = null;
             DefenseCandidateScore best = null;
             var evaluatedAny = false;
+            var evaluatedCandidates = 0;
+            var validCandidates = 0;
+            var rejectedCandidates = 0;
+            var rejectedByArmyAssignment = 0;
+            var rejectedByDefenseAssignment = 0;
+            var rejectedTooFar = 0;
+            var rejectedTooWeak = 0;
 
             if (candidates != null)
             {
@@ -27,7 +35,17 @@ namespace CalradiaStrategicMind.Strategic
                 {
                     var score = ScoreReport(settlement, candidates[index], defenseAssignments, armyAssignments);
                     evaluatedAny = true;
-                    TrackScore(score, ref best, ref topRejected);
+                    TrackScore(
+                        score,
+                        ref best,
+                        ref topRejected,
+                        ref evaluatedCandidates,
+                        ref validCandidates,
+                        ref rejectedCandidates,
+                        ref rejectedByArmyAssignment,
+                        ref rejectedByDefenseAssignment,
+                        ref rejectedTooFar,
+                        ref rejectedTooWeak);
                 }
             }
 
@@ -35,21 +53,71 @@ namespace CalradiaStrategicMind.Strategic
             {
                 var party = FindPartyByName(fallbackCandidateName);
                 var score = ScoreParty(settlement, party, fallbackCandidateName, defenseAssignments, armyAssignments);
-                TrackScore(score, ref best, ref topRejected);
+                TrackScore(
+                    score,
+                    ref best,
+                    ref topRejected,
+                    ref evaluatedCandidates,
+                    ref validCandidates,
+                    ref rejectedCandidates,
+                    ref rejectedByArmyAssignment,
+                    ref rejectedByDefenseAssignment,
+                    ref rejectedTooFar,
+                    ref rejectedTooWeak);
             }
 
+            scoringSummary = new DefenseCandidateScoringSummary(
+                GetSettlementName(settlement),
+                evaluatedCandidates,
+                validCandidates,
+                rejectedCandidates,
+                rejectedByArmyAssignment,
+                rejectedByDefenseAssignment,
+                rejectedTooFar,
+                rejectedTooWeak,
+                best == null ? "none" : best.CandidateName,
+                "Defense candidate scoring snapshot");
             return best;
         }
 
-        private static void TrackScore(DefenseCandidateScore score, ref DefenseCandidateScore best, ref DefenseCandidateScore topRejected)
+        private static void TrackScore(
+            DefenseCandidateScore score,
+            ref DefenseCandidateScore best,
+            ref DefenseCandidateScore topRejected,
+            ref int evaluatedCandidates,
+            ref int validCandidates,
+            ref int rejectedCandidates,
+            ref int rejectedByArmyAssignment,
+            ref int rejectedByDefenseAssignment,
+            ref int rejectedTooFar,
+            ref int rejectedTooWeak)
         {
             if (score == null)
             {
                 return;
             }
 
+            evaluatedCandidates++;
             if (score.IsRejected)
             {
+                rejectedCandidates++;
+                if (score.RejectionCategory == "ArmyAssignment")
+                {
+                    rejectedByArmyAssignment++;
+                }
+                else if (score.RejectionCategory == "DefenseAssignment")
+                {
+                    rejectedByDefenseAssignment++;
+                }
+                else if (score.RejectionCategory == "TooFar")
+                {
+                    rejectedTooFar++;
+                }
+                else if (score.RejectionCategory == "TooWeak")
+                {
+                    rejectedTooWeak++;
+                }
+
                 if (topRejected == null || score.Score > topRejected.Score)
                 {
                     topRejected = score;
@@ -58,6 +126,7 @@ namespace CalradiaStrategicMind.Strategic
                 return;
             }
 
+            validCandidates++;
             if (best == null || score.Score > best.Score)
             {
                 best = score;
@@ -101,14 +170,17 @@ namespace CalradiaStrategicMind.Strategic
                 Distance = party == null || settlement == null ? 9999f : party.Position.Distance(settlement.Position),
                 Strength = party?.Party == null ? 0f : party.Party.EstimatedStrength,
                 HealthyStrength = party?.Party == null ? 0f : party.Party.EstimatedStrength,
+                RejectionCategory = "None",
                 Reason = "Selected best urgent defense candidate"
             };
 
-            var rejectReason = GetRejectReason(settlement, party, defenseAssignments, armyAssignments);
+            string rejectionCategory;
+            var rejectReason = GetRejectReason(settlement, party, defenseAssignments, armyAssignments, out rejectionCategory);
             if (!string.IsNullOrWhiteSpace(rejectReason))
             {
                 score.IsRejected = true;
                 score.Score = -10000f;
+                score.RejectionCategory = rejectionCategory;
                 score.Reason = rejectReason;
                 return score;
             }
@@ -121,44 +193,68 @@ namespace CalradiaStrategicMind.Strategic
             Settlement settlement,
             MobileParty party,
             CsmDefenseAssignmentRegistry defenseAssignments,
-            CsmArmyAssignmentRegistry armyAssignments)
+            CsmArmyAssignmentRegistry armyAssignments,
+            out string rejectionCategory)
         {
+            rejectionCategory = "Invalid";
             if (party == null)
             {
-                return "Rejected because candidate party was not found";
+                return "Candidate invalid";
             }
 
             if (settlement == null)
             {
-                return "Rejected because target settlement was not found";
+                return "Candidate invalid";
             }
 
             var conflict = new CsmAssignmentConflictChecker(armyAssignments, defenseAssignments).CheckPartyForNewDefenseCommand(party, settlement);
             if (conflict.IsBlocked)
             {
-                return "Rejected because " + conflict.Reason;
+                if (conflict.HasActiveArmyAssignment)
+                {
+                    rejectionCategory = "ArmyAssignment";
+                    return "Candidate has active CSM army assignment";
+                }
+
+                if (conflict.HasActiveDefenseAssignment)
+                {
+                    rejectionCategory = "DefenseAssignment";
+                    return "Candidate already has active CSM defense assignment";
+                }
+
+                if (conflict.IsAlreadyDefendingDifferentSettlement)
+                {
+                    rejectionCategory = "AlreadyDefendingDifferentSettlement";
+                    return "Candidate is already defending different settlement";
+                }
+
+                return "Candidate invalid";
             }
 
             if (settlement.MapFaction == null || party.MapFaction != settlement.MapFaction)
             {
-                return "Rejected because candidate faction does not match settlement owner faction";
+                rejectionCategory = "WrongFaction";
+                return "Candidate belongs to wrong faction";
             }
 
             if (party.Army != null && party.Army.LeaderParty != party)
             {
-                return "Rejected because candidate is army member but not army leader";
+                return "Candidate invalid";
             }
 
             if (party.Position.Distance(settlement.Position) > DirectDefenseCommandSettings.MaxUrgentDefenseCommandDistance)
             {
-                return "Rejected because candidate is too far for urgent defense command";
+                rejectionCategory = "TooFar";
+                return "Candidate too far";
             }
 
             if (party.Party == null || party.Party.EstimatedStrength <= 0f || party.MemberRoster == null || party.MemberRoster.TotalManCount <= 0)
             {
-                return "Rejected because candidate has no usable strength";
+                rejectionCategory = "TooWeak";
+                return "Candidate too weak";
             }
 
+            rejectionCategory = "None";
             return null;
         }
 
@@ -248,6 +344,11 @@ namespace CalradiaStrategicMind.Strategic
         private static string GetPartyName(MobileParty party)
         {
             return party?.Name == null ? "unknown" : party.Name.ToString();
+        }
+
+        private static string GetSettlementName(Settlement settlement)
+        {
+            return settlement?.Name == null ? "unknown" : settlement.Name.ToString();
         }
 
         private static bool NamesEqual(string left, string right)
