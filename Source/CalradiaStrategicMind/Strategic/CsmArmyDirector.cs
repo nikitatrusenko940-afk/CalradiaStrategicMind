@@ -66,6 +66,7 @@ namespace CalradiaStrategicMind.Strategic
 
             LogTargetScoringSummary(observationTick);
             LogLifecycle(observationTick, lifecycle);
+            LogDirectorQaSummary(observationTick, reports);
             return reports;
         }
 
@@ -247,6 +248,64 @@ namespace CalradiaStrategicMind.Strategic
             summary.Add(_formationDirector.GetTargetScoringSummary());
             CsmLogger.Info(
                 $"Observed CSM army target scoring summary: tick={observationTick}, evaluatedTargets={summary.EvaluatedTargets}, selectedTargets={summary.SelectedTargets}, hardRejectedTargets={summary.HardRejectedTargets}, irrelevantRejectedTargets={summary.IrrelevantRejectedTargets}, tacticalRejectedTargets={summary.TacticalRejectedTargets}, rejectedActiveDefenseTargets={summary.RejectedActiveDefenseTargets}, rejectedOverextendedTargets={summary.RejectedOverextendedTargets}, rejectedLowStrengthTargets={summary.RejectedLowStrengthTargets}, recentlyFailedTargetPenalties={summary.RecentlyFailedTargetPenalties}, reason='Army target scoring v2 snapshot'");
+        }
+
+        private void LogDirectorQaSummary(int observationTick, List<CsmArmyDirectorReport> reports)
+        {
+            if (!ArmyDirectorSettings.EnableArmyDirectorLogs)
+            {
+                return;
+            }
+
+            var createdArmies = CountReports(reports, true, "Created");
+            var reassertedArmies = CountReports(reports, true, "Reasserted");
+            var releasedArmies = CountReleasedReports(reports);
+            var skippedCommands = CountReports(reports, false, "Skipped");
+            CsmLogger.Info(
+                $"Observed CSM army director summary: tick={observationTick}, activeAssignments={_assignmentRegistry.CountActiveAssignments()}, createdArmies={createdArmies}, reassertedArmies={reassertedArmies}, releasedArmies={releasedArmies}, skippedCommands={skippedCommands}, badSiegesDetected={_operationalDirector.BadSiegesDetected}, badSiegesReleased={_operationalDirector.BadSiegesReleased}, objectiveMismatches={_operationalDirector.ObjectiveMismatches}, objectiveSyncs={_operationalDirector.ObjectiveSyncs}, formationAttempts={_formationDirector.FormationAttempts}, formationSuccesses={_formationDirector.FormationSuccesses}, formationFailures={_formationDirector.FormationFailures}, reason='Army Director QA Polish v1 snapshot'");
+        }
+
+        private static int CountReports(List<CsmArmyDirectorReport> reports, bool commandApplied, string status)
+        {
+            var count = 0;
+            if (reports == null)
+            {
+                return count;
+            }
+
+            for (var index = 0; index < reports.Count; index++)
+            {
+                var report = reports[index];
+                if (report.CommandApplied == commandApplied && report.Status == status)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private static int CountReleasedReports(List<CsmArmyDirectorReport> reports)
+        {
+            var count = 0;
+            if (reports == null)
+            {
+                return count;
+            }
+
+            for (var index = 0; index < reports.Count; index++)
+            {
+                var report = reports[index];
+                if (report.Status == "Released"
+                    || report.Status == "ReleasedForRecovery"
+                    || report.Objective == "ReleaseForRecovery"
+                    || (report.Reason != null && report.Reason.IndexOf("released", System.StringComparison.OrdinalIgnoreCase) >= 0))
+                {
+                    count++;
+                }
+            }
+
+            return count;
         }
     }
 }

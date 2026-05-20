@@ -13,6 +13,10 @@ namespace CalradiaStrategicMind.Strategic
         private readonly CsmArmyObjectiveReader _objectiveReader;
         private readonly CsmBadSiegeEvaluator _badSiegeEvaluator;
         private readonly CsmArmyMissionTracker _missionTracker;
+        private int _badSiegesDetected;
+        private int _badSiegesReleased;
+        private int _objectiveMismatches;
+        private int _objectiveSyncs;
 
         public CsmArmyOperationalDirector()
         {
@@ -111,11 +115,35 @@ namespace CalradiaStrategicMind.Strategic
         public void ResetTargetScoringSummary()
         {
             _targetScorer.ResetSummary();
+            _badSiegesDetected = 0;
+            _badSiegesReleased = 0;
+            _objectiveMismatches = 0;
+            _objectiveSyncs = 0;
         }
 
         public CsmArmyTargetScoringSummary GetTargetScoringSummary()
         {
             return _targetScorer.SnapshotSummary();
+        }
+
+        public int BadSiegesDetected
+        {
+            get { return _badSiegesDetected; }
+        }
+
+        public int BadSiegesReleased
+        {
+            get { return _badSiegesReleased; }
+        }
+
+        public int ObjectiveMismatches
+        {
+            get { return _objectiveMismatches; }
+        }
+
+        public int ObjectiveSyncs
+        {
+            get { return _objectiveSyncs; }
         }
 
         private void ProcessAssignment(
@@ -150,6 +178,7 @@ namespace CalradiaStrategicMind.Strategic
 
             if (HasAssignmentObjectiveMismatch(objective, assignment))
             {
+                _objectiveMismatches++;
                 LogObjectiveSync(observationTick, snapshot, assignment, objective, false, "Mismatch", "Army displayed objective differs from CSM assignment target");
                 if (IsAttackObjective(assignment.ObjectiveType))
                 {
@@ -166,6 +195,7 @@ namespace CalradiaStrategicMind.Strategic
                     if (TrySyncArmyAttackObjective(snapshot, assignment, syncTarget))
                     {
                         registry.MarkReasserted(assignment, observationTick, "Reasserted because army displayed objective mismatched CSM assignment target");
+                        _objectiveSyncs++;
                         LogObjectiveSync(observationTick, snapshot, assignment, objective, true, "Synced", "Reasserted because army displayed objective mismatched CSM assignment target");
                         reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, true, "Reasserted", "Reasserted because army displayed objective mismatched CSM assignment target"));
                     }
@@ -385,6 +415,7 @@ namespace CalradiaStrategicMind.Strategic
             List<CsmArmyDirectorReport> reports,
             Settlement target)
         {
+            _objectiveMismatches++;
             LogObjectiveSync(observationTick, snapshot, assignment, objective, false, "Mismatch", "Army displayed objective differs from CSM assignment target");
             if (!IsAttackObjective(assignment.ObjectiveType))
             {
@@ -437,6 +468,7 @@ namespace CalradiaStrategicMind.Strategic
             if (TrySyncArmyAttackObjective(snapshot, assignment, target))
             {
                 registry.MarkReasserted(assignment, observationTick, "Reasserted because army displayed objective mismatched CSM assignment target");
+                _objectiveSyncs++;
                 LogObjectiveSync(observationTick, snapshot, assignment, objective, true, "Synced", "Reasserted because army displayed objective mismatched CSM assignment target");
                 reports.Add(CreateReport(observationTick, snapshot, assignment.ObjectiveType, assignment.TargetSettlementName, true, "Reasserted", "Reasserted because army displayed objective mismatched CSM assignment target"));
                 return true;
@@ -523,12 +555,22 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             var badSiege = _badSiegeEvaluator.Evaluate(snapshot, objective, defenseSnapshots, registry);
-            LogBadSiegeEvaluation(observationTick, snapshot, badSiege);
+            if (badSiege.IsBadSiege)
+            {
+                _badSiegesDetected++;
+            }
+
             var score = _targetScorer.FindBestTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry, defenseRegistry, recentlyFailedTargets, observationTick);
             if (score == null)
             {
                 var rejected = _targetScorer.FindBestRejectedTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry, defenseRegistry, recentlyFailedTargets, observationTick);
                 LogTargetRejection(observationTick, snapshot, rejected);
+                if (badSiege.IsBadSiege)
+                {
+                    _badSiegesReleased++;
+                }
+
+                LogBadSiegeEvaluation(observationTick, snapshot, badSiege, null, "No safe replacement target: " + GetReplacementRejectReason(rejected));
                 CloseAssignment(snapshot, assignment, registry, recentlyReleasedArmies, recentlyFailedTargets, "ReleasedForRecovery", "Bad siege had no safe replacement target; released army from CSM control", "BadSiegeNoReplacement", observationTick);
                 _missionTracker.CloseState(assignment, CsmArmyMissionStatus.ReleasedForRecovery, "Bad siege had no safe replacement target; released army from CSM control", observationTick);
                 reports.Add(CreateReport(observationTick, snapshot, "ReleaseForRecovery", "none", false, "ReleasedForRecovery", "Bad siege had no safe replacement target; released army from CSM control"));
@@ -536,6 +578,7 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             LogTargetScore(observationTick, snapshot, score);
+            LogBadSiegeEvaluation(observationTick, snapshot, badSiege, score, string.Empty);
             var target = score.Target;
             var reason = "Redirected bad siege to better scored attack target: " + badSiege.Reason;
             var inheritedRedirectCount = _missionTracker.GetRedirectCount(assignment);
@@ -668,12 +711,14 @@ namespace CalradiaStrategicMind.Strategic
                 return false;
             }
 
-            LogBadSiegeEvaluation(tick, snapshot, badSiege);
+            _badSiegesDetected++;
             var score = targetScorer.FindBestTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry, defenseRegistry, recentlyFailedTargets, tick);
             if (score == null)
             {
                 var rejected = targetScorer.FindBestRejectedTarget(snapshot.LeaderParty.MapFaction as Kingdom, snapshot.LeaderParty, snapshot.TotalStrength, defenseSnapshots, registry, defenseRegistry, recentlyFailedTargets, tick);
                 LogTargetRejection(tick, snapshot, rejected);
+                _badSiegesReleased++;
+                LogBadSiegeEvaluation(tick, snapshot, badSiege, null, "No safe replacement target: " + GetReplacementRejectReason(rejected));
                 var activeAssignment = registry.GetActiveAssignmentForArmy(snapshot.ArmyId);
                 if (activeAssignment != null)
                 {
@@ -689,6 +734,7 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             LogTargetScore(tick, snapshot, score);
+            LogBadSiegeEvaluation(tick, snapshot, badSiege, score, string.Empty);
             var target = score.Target;
             CsmArmyAssignment assignment;
             var reason = "Redirected bad siege to better scored attack target: " + badSiege.Reason;
@@ -1205,15 +1251,18 @@ namespace CalradiaStrategicMind.Strategic
                 $"Observed CSM army target rejection: tick={tick}, kingdom='{snapshot.KingdomName}', army='{snapshot.ArmyName}', topRejectedTarget='{score.TargetName}', score={score.Score:0.00}, hardRejectReason='{score.HardRejectReason}', strategicValue={score.StrategicValueScore:0.00}, distance={score.Distance:0.00}, strengthRatio={score.StrengthRatio:0.00}, nearbyEnemyArmyStrength={score.NearbyEnemyArmyStrength:0.00}, nearbyFriendlySupportStrength={score.NearbyFriendlySupportStrength:0.00}, reason='{score.Reason}'");
         }
 
-        private static void LogBadSiegeEvaluation(int tick, CsmArmySnapshot snapshot, CsmBadSiegeEvaluation evaluation)
+        private static void LogBadSiegeEvaluation(int tick, CsmArmySnapshot snapshot, CsmBadSiegeEvaluation evaluation, CsmArmyAttackTargetScore replacementScore, string releaseReason)
         {
             if (!ArmyDirectorSettings.EnableArmyDirectorLogs || evaluation == null || !evaluation.IsBadSiege)
             {
                 return;
             }
 
+            var safeReplacementTarget = replacementScore == null ? "none" : replacementScore.TargetName;
+            var safeReplacementScore = replacementScore == null ? 0f : replacementScore.Score;
+            var nearbyFriendlySupportStrength = replacementScore == null ? 0f : replacementScore.NearbyFriendlySupportStrength;
             CsmLogger.Info(
-                $"Observed CSM bad siege evaluation: tick={tick}, army='{snapshot.ArmyName}', target='{evaluation.CurrentTargetName}', armyStrength={evaluation.ArmyStrength:0.00}, targetDefense={evaluation.TargetDefenseStrength:0.00}, strengthRatio={evaluation.StrengthRatio:0.00}, cohesion={evaluation.Cohesion:0.00}, nearbyEnemyArmyStrength={evaluation.NearbyEnemyArmyStrength:0.00}, isBadSiege={evaluation.IsBadSiege}, reason='{evaluation.Reason}'");
+                $"Observed CSM bad siege evaluation: tick={tick}, army='{snapshot.ArmyName}', target='{evaluation.CurrentTargetName}', armyStrength={evaluation.ArmyStrength:0.00}, targetDefense={evaluation.TargetDefenseStrength:0.00}, strengthRatio={evaluation.StrengthRatio:0.00}, cohesion={evaluation.Cohesion:0.00}, nearbyEnemyArmyStrength={evaluation.NearbyEnemyArmyStrength:0.00}, nearbyFriendlySupportStrength={nearbyFriendlySupportStrength:0.00}, isBadSiege={evaluation.IsBadSiege}, safeReplacementTarget='{safeReplacementTarget}', safeReplacementScore={safeReplacementScore:0.00}, releaseReason='{releaseReason}', reason='{evaluation.Reason}'");
         }
 
         private static void LogObjectiveSync(int tick, CsmArmySnapshot snapshot, CsmArmyAssignment assignment, CsmArmyObjectiveSnapshot objective, bool applied, string status, string reason)
@@ -1225,6 +1274,99 @@ namespace CalradiaStrategicMind.Strategic
 
             CsmLogger.Info(
                 $"Observed CSM army objective sync: tick={tick}, army='{snapshot.ArmyName}', kingdom='{snapshot.KingdomName}', assignmentTarget='{assignment.TargetSettlementName}', leaderTarget='{objective.LeaderTargetSettlementName}', leaderBesieged='{objective.LeaderBesiegedSettlementName}', armyAiBehaviorObject='{objective.ArmyAiBehaviorObjectSettlementName}', commandApplied={applied}, status='{status}', reason='{reason}'");
+            LogObjectiveMismatchClassification(tick, snapshot, assignment, objective, status == "Synced" || status == "Skipped", reason);
+        }
+
+        private static void LogObjectiveMismatchClassification(int tick, CsmArmySnapshot snapshot, CsmArmyAssignment assignment, CsmArmyObjectiveSnapshot objective, bool syncAttempted, string reason)
+        {
+            if (!ArmyDirectorSettings.EnableArmyDirectorLogs || assignment == null || objective == null)
+            {
+                return;
+            }
+
+            CsmLogger.Info(
+                $"Observed CSM army objective mismatch classification: tick={tick}, army='{snapshot.ArmyName}', kingdom='{snapshot.KingdomName}', assignmentTarget='{assignment.TargetSettlementName}', leaderTarget='{objective.LeaderTargetSettlementName}', leaderBesieged='{objective.LeaderBesiegedSettlementName}', armyAiBehaviorObject='{objective.ArmyAiBehaviorObjectSettlementName}', distanceToAssignment={GetDistanceToAssignment(snapshot, assignment):0.00}, classification='{ClassifyObjectiveMismatch(snapshot, assignment, objective)}', syncAttempted={syncAttempted}, reason='Army objective mismatch diagnostic'");
+        }
+
+        private static string ClassifyObjectiveMismatch(CsmArmySnapshot snapshot, CsmArmyAssignment assignment, CsmArmyObjectiveSnapshot objective)
+        {
+            if (assignment == null || objective == null)
+            {
+                return "UnknownMismatch";
+            }
+
+            if (objective.LeaderBesiegedSettlement != null && !IsSameTarget(objective.LeaderBesiegedSettlement, assignment.TargetSettlementId, assignment.TargetSettlementName))
+            {
+                return "BesiegingDifferentSettlement";
+            }
+
+            if (objective.ArmyAiBehaviorObjectSettlement != null && !IsSameTarget(objective.ArmyAiBehaviorObjectSettlement, assignment.TargetSettlementId, assignment.TargetSettlementName))
+            {
+                return "DifferentAiBehaviorObject";
+            }
+
+            if (objective.LeaderTargetSettlement == null && objective.ArmyAiBehaviorObjectSettlement == null && objective.LeaderBesiegedSettlement == null)
+            {
+                return "MissingLeaderTarget";
+            }
+
+            if (objective.LeaderTargetSettlement != null && !IsSameTarget(objective.LeaderTargetSettlement, assignment.TargetSettlementId, assignment.TargetSettlementName))
+            {
+                var assignmentTarget = FindSettlementByIdOrName(assignment.TargetSettlementId, assignment.TargetSettlementName);
+                if (assignmentTarget != null && objective.LeaderTargetSettlement.Position.Distance(assignmentTarget.Position) <= ArmyDirectorSettings.MissionWrongTargetToleranceDistance)
+                {
+                    return "GoingToNearbySettlement";
+                }
+
+                if (objective.CurrentObjective == "MovingToSettlement" || objective.CurrentObjective == "MovingToBesiegeSettlement")
+                {
+                    return "TemporaryVanillaRoute";
+                }
+
+                return "TrueMismatch";
+            }
+
+            return string.IsNullOrWhiteSpace(objective.ObjectiveMismatchReason)
+                ? "UnknownMismatch"
+                : "TrueMismatch";
+        }
+
+        private static float GetDistanceToAssignment(CsmArmySnapshot snapshot, CsmArmyAssignment assignment)
+        {
+            var target = FindSettlementByIdOrName(assignment.TargetSettlementId, assignment.TargetSettlementName);
+            return snapshot.LeaderParty == null || target == null
+                ? 0f
+                : snapshot.LeaderParty.Position.Distance(target.Position);
+        }
+
+        private static string GetReplacementRejectReason(CsmArmyAttackTargetScore rejected)
+        {
+            if (rejected == null)
+            {
+                return "No safe replacement target";
+            }
+
+            if (rejected.IsActiveDefenseTarget)
+            {
+                return "Replacement target conflicts with active defense target";
+            }
+
+            if (rejected.Distance > ArmyDirectorSettings.ExtendedFrontlineAttackTargetDistance)
+            {
+                return "Replacement target too far";
+            }
+
+            if (rejected.StrengthRatio < ArmyDirectorSettings.GoodAttackRequiredStrengthRatio)
+            {
+                return "Replacement target low strength ratio";
+            }
+
+            if (!string.IsNullOrWhiteSpace(rejected.HardRejectReason))
+            {
+                return "All replacement targets rejected by target scoring: " + rejected.HardRejectReason;
+            }
+
+            return "All replacement targets rejected by target scoring";
         }
 
         private static string GetPartyId(MobileParty party)
