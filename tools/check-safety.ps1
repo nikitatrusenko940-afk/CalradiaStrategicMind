@@ -62,7 +62,8 @@ $directDefenseCommandAllowedPatterns = @(
 $armyDirectorAllowedPaths = @(
     ".\Source\CalradiaStrategicMind\Strategic\CsmArmyDirector.cs",
     ".\Source\CalradiaStrategicMind\Strategic\CsmArmyFormationDirector.cs",
-    ".\Source\CalradiaStrategicMind\Strategic\CsmArmyOperationalDirector.cs"
+    ".\Source\CalradiaStrategicMind\Strategic\CsmArmyOperationalDirector.cs",
+    ".\Source\CalradiaStrategicMind\Strategic\CsmLordPartyRecoveryController.cs"
 )
 $armyDirectorAllowedPatterns = @(
     "SetMoveDefendSettlement",

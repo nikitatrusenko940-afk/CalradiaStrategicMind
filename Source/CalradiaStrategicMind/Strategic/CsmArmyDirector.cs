@@ -30,10 +30,19 @@ namespace CalradiaStrategicMind.Strategic
 
         public List<CsmArmyDirectorReport> Evaluate(List<DefenseEvaluationSnapshot> defenseSnapshots, int observationTick)
         {
-            return Evaluate(defenseSnapshots, null, observationTick);
+            return Evaluate(defenseSnapshots, null, null, observationTick);
         }
 
         public List<CsmArmyDirectorReport> Evaluate(List<DefenseEvaluationSnapshot> defenseSnapshots, CsmDefenseAssignmentRegistry defenseRegistry, int observationTick)
+        {
+            return Evaluate(defenseSnapshots, defenseRegistry, null, observationTick);
+        }
+
+        public List<CsmArmyDirectorReport> Evaluate(
+            List<DefenseEvaluationSnapshot> defenseSnapshots,
+            CsmDefenseAssignmentRegistry defenseRegistry,
+            CsmLordPartyRecoveryRegistry recoveryRegistry,
+            int observationTick)
         {
             var reports = new List<CsmArmyDirectorReport>();
             if (!ArmyDirectorSettings.EnableArmyDirector)
@@ -55,7 +64,7 @@ namespace CalradiaStrategicMind.Strategic
             }
             else
             {
-                var formationReports = _formationDirector.Execute(snapshots, defenseSnapshots, _assignmentRegistry, defenseRegistry, _recentlyReleasedArmies, _recentlyFailedTargets, lifecycle, observationTick);
+                var formationReports = _formationDirector.Execute(snapshots, defenseSnapshots, _assignmentRegistry, defenseRegistry, recoveryRegistry, _recentlyReleasedArmies, _recentlyFailedTargets, lifecycle, observationTick);
                 AddReports(reports, formationReports);
             }
 

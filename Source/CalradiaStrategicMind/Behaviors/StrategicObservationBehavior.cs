@@ -30,6 +30,7 @@ namespace CalradiaStrategicMind.Behaviors
         private readonly DefenseCommandInterface _defenseCommandInterface;
         private readonly DirectDefenseCommandController _directDefenseCommandController;
         private readonly CsmArmyDirector _armyDirector;
+        private readonly CsmLordPartyRecoveryController _lordPartyRecoveryController;
         private readonly CsmStrategicTaskDisciplineController _strategicTaskDisciplineController;
         private readonly DefenseScoreSimulator _defenseScoreSimulator;
         private readonly DefenseScoreSimulationSummaryBuilder _defenseScoreSimulationSummaryBuilder;
@@ -58,6 +59,7 @@ namespace CalradiaStrategicMind.Behaviors
             _defenseCommandInterface = new DefenseCommandInterface();
             _directDefenseCommandController = new DirectDefenseCommandController();
             _armyDirector = new CsmArmyDirector();
+            _lordPartyRecoveryController = new CsmLordPartyRecoveryController();
             CsmControlledPartyResolver.Register(_directDefenseCommandController.AssignmentRegistry, _armyDirector.AssignmentRegistry);
             _strategicTaskDisciplineController = new CsmStrategicTaskDisciplineController();
             _defenseScoreSimulator = new DefenseScoreSimulator();
@@ -96,6 +98,10 @@ namespace CalradiaStrategicMind.Behaviors
             }
 
             _observationTick++;
+            _lordPartyRecoveryController.Execute(
+                _directDefenseCommandController == null ? null : _directDefenseCommandController.AssignmentRegistry,
+                _armyDirector == null ? null : _armyDirector.AssignmentRegistry,
+                _observationTick);
             var observedCount = 0;
             var fallbackObservedCount = 0;
             var fallbackParties = new MobileParty[MaxPartiesPerDailyObservation];
@@ -392,7 +398,7 @@ namespace CalradiaStrategicMind.Behaviors
 
                 if (DirectDefenseCommandSettings.EnableDirectDefenseCommand && IsUrgentDefenseAction(actionPlan.RecommendedAction))
                 {
-                    var directCommandReport = _directDefenseCommandController.Execute(snapshot, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerSafetyReport, _armyDirector, _observationTick);
+                    var directCommandReport = _directDefenseCommandController.Execute(snapshot, actionPlan, dryRunDecision, dryRunStabilityReport, defenseControllerSafetyReport, _armyDirector, _lordPartyRecoveryController == null ? null : _lordPartyRecoveryController.Registry, _observationTick);
                     if (DirectDefenseCommandSettings.EnableDirectDefenseCommandLogs)
                     {
                         LogDirectDefenseCommand(directCommandReport);
@@ -437,7 +443,7 @@ namespace CalradiaStrategicMind.Behaviors
                 return;
             }
 
-            var reports = _armyDirector.Evaluate(defenseSnapshots, _directDefenseCommandController.AssignmentRegistry, _observationTick);
+            var reports = _armyDirector.Evaluate(defenseSnapshots, _directDefenseCommandController.AssignmentRegistry, _lordPartyRecoveryController == null ? null : _lordPartyRecoveryController.Registry, _observationTick);
             var armyCommandsCreated = 0;
             var armyCommandsReasserted = 0;
             if (reports != null)

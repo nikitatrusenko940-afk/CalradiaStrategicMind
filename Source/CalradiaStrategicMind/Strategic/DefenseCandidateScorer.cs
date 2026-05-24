@@ -15,6 +15,7 @@ namespace CalradiaStrategicMind.Strategic
             string fallbackCandidateName,
             CsmDefenseAssignmentRegistry defenseAssignments,
             CsmArmyAssignmentRegistry armyAssignments,
+            CsmLordPartyRecoveryRegistry recoveryRegistry,
             string actionTier,
             out DefenseCandidateScore topRejected,
             out DefenseCandidateScoringSummary scoringSummary)
@@ -40,7 +41,7 @@ namespace CalradiaStrategicMind.Strategic
             {
                 for (var index = 0; index < candidates.Count; index++)
                 {
-                    var score = ScoreReport(settlement, candidates[index], defenseAssignments, armyAssignments, actionTier);
+                    var score = ScoreReport(settlement, candidates[index], defenseAssignments, armyAssignments, recoveryRegistry, actionTier);
                     evaluatedAny = true;
                     TrackScore(
                         score,
@@ -65,7 +66,7 @@ namespace CalradiaStrategicMind.Strategic
             if (!evaluatedAny && !string.IsNullOrWhiteSpace(fallbackCandidateName))
             {
                 var party = FindPartyByName(fallbackCandidateName);
-                var score = ScoreParty(settlement, party, fallbackCandidateName, defenseAssignments, armyAssignments, actionTier);
+                var score = ScoreParty(settlement, party, fallbackCandidateName, defenseAssignments, armyAssignments, recoveryRegistry, actionTier);
                 TrackScore(
                     score,
                     ref best,
@@ -197,10 +198,11 @@ namespace CalradiaStrategicMind.Strategic
             DefenseCandidateReport candidate,
             CsmDefenseAssignmentRegistry defenseAssignments,
             CsmArmyAssignmentRegistry armyAssignments,
+            CsmLordPartyRecoveryRegistry recoveryRegistry,
             string actionTier)
         {
             var party = FindPartyByName(candidate.CandidatePartyName);
-            var score = ScoreParty(settlement, party, candidate.CandidatePartyName, defenseAssignments, armyAssignments, actionTier);
+            var score = ScoreParty(settlement, party, candidate.CandidatePartyName, defenseAssignments, armyAssignments, recoveryRegistry, actionTier);
             score.CandidateCategory = candidate.CandidateCategory;
             score.Distance = candidate.DistanceToSettlement;
             score.Strength = candidate.CandidateStrength;
@@ -224,6 +226,7 @@ namespace CalradiaStrategicMind.Strategic
             string candidateName,
             CsmDefenseAssignmentRegistry defenseAssignments,
             CsmArmyAssignmentRegistry armyAssignments,
+            CsmLordPartyRecoveryRegistry recoveryRegistry,
             string actionTier)
         {
             var score = new DefenseCandidateScore
@@ -240,7 +243,7 @@ namespace CalradiaStrategicMind.Strategic
             };
 
             string rejectionCategory;
-            var rejectReason = GetRejectReason(settlement, party, defenseAssignments, armyAssignments, actionTier, score, out rejectionCategory);
+            var rejectReason = GetRejectReason(settlement, party, defenseAssignments, armyAssignments, recoveryRegistry, actionTier, score, out rejectionCategory);
             if (!string.IsNullOrWhiteSpace(rejectReason))
             {
                 score.IsRejected = true;
@@ -259,6 +262,7 @@ namespace CalradiaStrategicMind.Strategic
             MobileParty party,
             CsmDefenseAssignmentRegistry defenseAssignments,
             CsmArmyAssignmentRegistry armyAssignments,
+            CsmLordPartyRecoveryRegistry recoveryRegistry,
             string actionTier,
             DefenseCandidateScore score,
             out string rejectionCategory)
@@ -326,6 +330,27 @@ namespace CalradiaStrategicMind.Strategic
             if (party.Army != null && party.Army.LeaderParty != party)
             {
                 return "Candidate invalid";
+            }
+
+            var recoveryAssignment = recoveryRegistry == null ? null : recoveryRegistry.GetActiveRecoveryForParty(party);
+            if (LordPartyRecoverySettings.EnableLordPartyRecoveryController && recoveryAssignment != null)
+            {
+                var recoveryEvaluation = CsmLordPartyRecoveryEvaluator.Evaluate(party);
+                var belowOperationRatio = recoveryEvaluation.HealthyRatio < GetMinimumHealthyPartyRatioForOperations();
+                if (belowOperationRatio || LordPartyRecoverySettings.RecoveryBlocksDefenseCandidateSelection)
+                {
+                    if (IsCriticalActiveSiegeDefense(actionTier, settlement)
+                        && recoveryEvaluation.HealthyRatio >= GetCriticalDefenseOverrideRatio())
+                    {
+                        score.IsRecoveringEmergencyDefender = true;
+                        score.Reason = "Recovering party accepted as emergency defender";
+                    }
+                    else
+                    {
+                        rejectionCategory = "RecoveringWeakParty";
+                        return "Recovering weak party should continue rebuilding";
+                    }
+                }
             }
 
             var maxDistance = IsScarceLocalSiegeRelief(actionTier)
@@ -531,6 +556,27 @@ namespace CalradiaStrategicMind.Strategic
                 || IsLowActiveSiegeDefense(actionTier)
                 || IsAdaptiveActiveSiegeDefense(actionTier)
                 || IsScarceLocalSiegeRelief(actionTier);
+        }
+
+        private static bool IsCriticalActiveSiegeDefense(string actionTier, Settlement settlement)
+        {
+            return settlement != null
+                && settlement.SiegeEvent != null
+                && (IsImmediateCriticalDefense(actionTier) || IsCriticalDefense(actionTier));
+        }
+
+        private static float GetMinimumHealthyPartyRatioForOperations()
+        {
+            return LordPartyRecoverySettings.MinimumHealthyPartyRatioForOperations <= 0f
+                ? 0.65f
+                : LordPartyRecoverySettings.MinimumHealthyPartyRatioForOperations;
+        }
+
+        private static float GetCriticalDefenseOverrideRatio()
+        {
+            return LordPartyRecoverySettings.CriticalDefenseOverrideRatio <= 0f
+                ? 0f
+                : LordPartyRecoverySettings.CriticalDefenseOverrideRatio;
         }
 
         private static bool CanAllowDefenseReassignment(
