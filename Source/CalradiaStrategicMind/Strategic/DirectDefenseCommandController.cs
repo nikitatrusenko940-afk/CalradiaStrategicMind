@@ -196,11 +196,12 @@ namespace CalradiaStrategicMind.Strategic
             DryRunDefenseDecisionStabilityReport stabilityReport,
             DefenseControllerSafetyReport safetyReport,
             CsmArmyDirector armyDirector,
+            CsmLordPartyRecoveryRegistry recoveryRegistry,
             int observationTick)
         {
             return SafeExecutor.Run(
                 "Execute direct defense command",
-                () => ExecuteCore(snapshot, actionPlan, dryRunDecision, stabilityReport, safetyReport, armyDirector, observationTick),
+                () => ExecuteCore(snapshot, actionPlan, dryRunDecision, stabilityReport, safetyReport, armyDirector, recoveryRegistry, observationTick),
                 CreateReport(observationTick, "unknown", "unknown", "UrgentDefense", "none", PartyObservationCategory.Unknown, false, false, "Direct defense command failed"));
         }
 
@@ -457,6 +458,7 @@ namespace CalradiaStrategicMind.Strategic
             DryRunDefenseDecisionStabilityReport stabilityReport,
             DefenseControllerSafetyReport safetyReport,
             CsmArmyDirector armyDirector,
+            CsmLordPartyRecoveryRegistry recoveryRegistry,
             int observationTick)
         {
             ResetDailyStateIfNeeded(observationTick);
@@ -615,6 +617,7 @@ namespace CalradiaStrategicMind.Strategic
                     candidateName,
                     actionTier,
                     armyDirector == null ? null : armyDirector.AssignmentRegistry,
+                    recoveryRegistry,
                     immediateCriticalReaction.ImmediateReactionAllowed,
                     lowSiegeEarlyReinforcement.Allowed,
                     dailyCommandBudgetOverrideEligible,
@@ -639,7 +642,7 @@ namespace CalradiaStrategicMind.Strategic
 
             DefenseCandidateScore topRejected;
             DefenseCandidateScoringSummary candidateScoringSummary;
-            var selectedCandidate = _candidateScorer.SelectBest(settlement, snapshot.CandidateReports, candidateName, _assignmentRegistry, armyDirector == null ? null : armyDirector.AssignmentRegistry, actionTier, out topRejected, out candidateScoringSummary);
+            var selectedCandidate = _candidateScorer.SelectBest(settlement, snapshot.CandidateReports, candidateName, _assignmentRegistry, armyDirector == null ? null : armyDirector.AssignmentRegistry, recoveryRegistry, actionTier, out topRejected, out candidateScoringSummary);
             LogCandidateScore(observationTick, actionTier, selectedCandidate, topRejected, candidateScoringSummary);
             if (selectedCandidate == null)
             {
@@ -688,6 +691,7 @@ namespace CalradiaStrategicMind.Strategic
                 LogDefenseCommandBudgetOverride(snapshot, settlement, observationTick, true);
             }
 
+            CompleteRecoveryForEmergencyDefender(selectedCandidate, recoveryRegistry, observationTick);
             commandParty.SetMoveDefendSettlement(settlement, false, commandParty.NavigationCapability);
 
             _commandsToday++;
@@ -735,6 +739,7 @@ namespace CalradiaStrategicMind.Strategic
             string fallbackCandidateName,
             string actionTier,
             CsmArmyAssignmentRegistry armyAssignments,
+            CsmLordPartyRecoveryRegistry recoveryRegistry,
             bool immediateCriticalSiegeDefense,
             bool lowSiegeEarlyReinforcement,
             bool dailyCommandBudgetOverrideEligible,
@@ -866,6 +871,7 @@ namespace CalradiaStrategicMind.Strategic
                     fallbackCandidateName,
                     _assignmentRegistry,
                     armyAssignments,
+                    recoveryRegistry,
                     scoringActionTier,
                     out topRejected,
                     out candidateScoringSummary);
@@ -981,6 +987,7 @@ namespace CalradiaStrategicMind.Strategic
                     break;
                 }
 
+                CompleteRecoveryForEmergencyDefender(selectedCandidate, recoveryRegistry, observationTick);
                 commandParty.SetMoveDefendSettlement(settlement, false, commandParty.NavigationCapability);
                 CloseReassignedDefenseAssignmentIfNeeded(selectedCandidate, commandParty, settlementId, settlementName, observationTick);
 
@@ -2788,6 +2795,11 @@ namespace CalradiaStrategicMind.Strategic
             {
                 CsmLogger.Info(
                     $"Observed defense candidate score: tick={tick}, settlement='{summary.SettlementName}', actionTier='{actionTier}', selectedCandidate='{selected.CandidateName}', score={selected.Score:0.00}, distance={selected.Distance:0.00}, strength={selected.Strength:0.00}, distanceScore={selected.DistanceScore:0.00}, strengthScore={selected.StrengthScore:0.00}, availabilityScore={selected.AvailabilityScore:0.00}, intentScore={selected.IntentScore:0.00}, criticalDefenseSpeedScore={selected.CriticalDefenseSpeedScore:0.00}, category={selected.CandidateCategory}, reason='{selected.Reason}'");
+                if (selected.IsRecoveringEmergencyDefender)
+                {
+                    CsmLogger.Info(
+                        $"Observed defense candidate acceptance: tick={tick}, settlement='{summary.SettlementName}', actionTier='{actionTier}', candidate='{selected.CandidateName}', recoveryOverride=True, reason='Recovering party accepted as emergency defender'");
+                }
             }
 
             if (rejected != null)
@@ -2798,6 +2810,28 @@ namespace CalradiaStrategicMind.Strategic
 
             CsmLogger.Info(
                 $"Observed defense candidate scoring summary: tick={tick}, settlement='{summary.SettlementName}', actionTier='{actionTier}', evaluatedCandidates={summary.EvaluatedCandidates}, validCandidates={summary.ValidCandidates}, rejectedCandidates={summary.RejectedCandidates}, rejectedByArmyAssignment={summary.RejectedByArmyAssignment}, rejectedByDefenseAssignment={summary.RejectedByDefenseAssignment}, rejectedTooFar={summary.RejectedTooFar}, rejectedTooWeak={summary.RejectedTooWeak}, rejectedTooWeakHard={summary.RejectedTooWeakHard}, acceptedWeakSupplemental={summary.AcceptedWeakSupplemental}, rejectedWrongFaction={summary.RejectedWrongFaction}, rejectedInvalid={summary.RejectedInvalid}, rejectedAlreadyDefendingDifferentSettlement={summary.RejectedAlreadyDefendingDifferentSettlement}, acceptedReassignment={summary.AcceptedReassignment}, selectedCandidate='{summary.SelectedCandidate}', selectedCandidateScore={summary.SelectedCandidateScore:0.00}, selectedCandidateDistance={summary.SelectedCandidateDistance:0.00}, selectedCandidateStrength={summary.SelectedCandidateStrength:0.00}, reason='{summary.Reason}'");
+        }
+
+        private static void CompleteRecoveryForEmergencyDefender(
+            DefenseCandidateScore selectedCandidate,
+            CsmLordPartyRecoveryRegistry recoveryRegistry,
+            int observationTick)
+        {
+            if (selectedCandidate == null || !selectedCandidate.IsRecoveringEmergencyDefender || recoveryRegistry == null)
+            {
+                return;
+            }
+
+            var party = selectedCandidate.Party;
+            var assignment = recoveryRegistry.GetActiveRecoveryForParty(party);
+            if (assignment == null)
+            {
+                return;
+            }
+
+            recoveryRegistry.Close(assignment, "Completed", "Recovery assignment completed because party accepted emergency defense assignment");
+            CsmLogger.Info(
+                $"Observed lord party recovery lifecycle: tick={observationTick}, activeRecoveries={recoveryRegistry.CountActiveRecoveries()}, created=0, completed=1, expired=0, invalid=0, reason='Recovery assignment completed because party accepted emergency defense assignment'");
         }
 
         private static PartyObservationCategory GetCommandPartyCategory(MobileParty party)

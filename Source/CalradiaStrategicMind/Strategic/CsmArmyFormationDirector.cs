@@ -28,6 +28,7 @@ namespace CalradiaStrategicMind.Strategic
             List<DefenseEvaluationSnapshot> defenseSnapshots,
             CsmArmyAssignmentRegistry registry,
             CsmDefenseAssignmentRegistry defenseRegistry,
+            CsmLordPartyRecoveryRegistry recoveryRegistry,
             CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies,
             CsmRecentlyFailedArmyTargetRegistry recentlyFailedTargets,
             CsmArmyLifecycleReport lifecycle,
@@ -79,7 +80,7 @@ namespace CalradiaStrategicMind.Strategic
 
                 OffensiveOpportunity opportunity;
                 ArmyFormationDiagnostics diagnostics;
-                if (!TryFindOpportunity(kingdom, defenseSnapshots, registry, defenseRegistry, recentlyReleasedArmies, recentlyFailedTargets, lifecycle, observationTick, kingdomName, out opportunity, out diagnostics))
+                if (!TryFindOpportunity(kingdom, defenseSnapshots, registry, defenseRegistry, recoveryRegistry, recentlyReleasedArmies, recentlyFailedTargets, lifecycle, observationTick, kingdomName, out opportunity, out diagnostics))
                 {
                     LogFormationDiagnostics(diagnostics, false, "Skipped", "No attack target passed Army Target Scoring");
                     reports.Add(CreateReport(observationTick, "none", kingdomName, "AttackSettlement", "none", false, "Skipped", "No attack target passed Army Target Scoring"));
@@ -167,11 +168,11 @@ namespace CalradiaStrategicMind.Strategic
             get { return _formationFailures; }
         }
 
-        private bool TryFindOpportunity(Kingdom kingdom, List<DefenseEvaluationSnapshot> defenseSnapshots, CsmArmyAssignmentRegistry registry, CsmDefenseAssignmentRegistry defenseRegistry, CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies, CsmRecentlyFailedArmyTargetRegistry recentlyFailedTargets, CsmArmyLifecycleReport lifecycle, int tick, string kingdomName, out OffensiveOpportunity opportunity, out ArmyFormationDiagnostics diagnostics)
+        private bool TryFindOpportunity(Kingdom kingdom, List<DefenseEvaluationSnapshot> defenseSnapshots, CsmArmyAssignmentRegistry registry, CsmDefenseAssignmentRegistry defenseRegistry, CsmLordPartyRecoveryRegistry recoveryRegistry, CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies, CsmRecentlyFailedArmyTargetRegistry recentlyFailedTargets, CsmArmyLifecycleReport lifecycle, int tick, string kingdomName, out OffensiveOpportunity opportunity, out ArmyFormationDiagnostics diagnostics)
         {
             opportunity = default(OffensiveOpportunity);
             diagnostics = CreateFormationDiagnostics(tick, kingdomName, "Rejected", "No formation opportunity found");
-            var provisionalLeader = FindBestFormationLeader(kingdom, registry, recentlyReleasedArmies, lifecycle, tick, diagnostics);
+            var provisionalLeader = FindBestFormationLeader(kingdom, registry, recoveryRegistry, recentlyReleasedArmies, lifecycle, tick, diagnostics);
             if (provisionalLeader == null)
             {
                 diagnostics.Reason = "No valid formation leader";
@@ -179,7 +180,7 @@ namespace CalradiaStrategicMind.Strategic
                 return false;
             }
 
-            var estimatedStrength = EstimateFormationStrength(kingdom, provisionalLeader);
+            var estimatedStrength = EstimateFormationStrength(kingdom, provisionalLeader, recoveryRegistry);
             var score = _targetScorer.FindBestTarget(kingdom, provisionalLeader, estimatedStrength, defenseSnapshots, registry, defenseRegistry, recentlyFailedTargets, tick);
             if (score == null)
             {
@@ -208,7 +209,7 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             var partyDiagnostics = new ArmyPartySelectionDiagnostics(tick, kingdomName, GetPartyName(provisionalLeader), GetSettlementName(target));
-            var parties = FindFormationParties(kingdom, target, provisionalLeader, registry, defenseRegistry, recentlyReleasedArmies, lifecycle, tick, partyDiagnostics);
+            var parties = FindFormationParties(kingdom, target, provisionalLeader, registry, defenseRegistry, recoveryRegistry, recentlyReleasedArmies, lifecycle, tick, partyDiagnostics);
             ApplyPartyDiagnostics(diagnostics, partyDiagnostics);
             LogPartySelection(partyDiagnostics);
             if (parties.Count > 0)
@@ -259,7 +260,7 @@ namespace CalradiaStrategicMind.Strategic
             return true;
         }
 
-        private MobileParty FindBestFormationLeader(Kingdom kingdom, CsmArmyAssignmentRegistry registry, CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies, CsmArmyLifecycleReport lifecycle, int tick, ArmyFormationDiagnostics diagnostics)
+        private MobileParty FindBestFormationLeader(Kingdom kingdom, CsmArmyAssignmentRegistry registry, CsmLordPartyRecoveryRegistry recoveryRegistry, CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies, CsmArmyLifecycleReport lifecycle, int tick, ArmyFormationDiagnostics diagnostics)
         {
             var parties = kingdom?.WarPartyComponents;
             MobileParty best = null;
@@ -280,6 +281,12 @@ namespace CalradiaStrategicMind.Strategic
                 if (!IsFreeLordParty(party))
                 {
                     RecordLeaderReject(diagnostics, party, "Invalid party");
+                    continue;
+                }
+
+                if (ShouldRejectRecoveryPartyForArmySelection(party, recoveryRegistry))
+                {
+                    RecordLeaderReject(diagnostics, party, "RecoveryAssigned");
                     continue;
                 }
 
@@ -317,7 +324,7 @@ namespace CalradiaStrategicMind.Strategic
             return best;
         }
 
-        private float EstimateFormationStrength(Kingdom kingdom, MobileParty anchorParty)
+        private float EstimateFormationStrength(Kingdom kingdom, MobileParty anchorParty, CsmLordPartyRecoveryRegistry recoveryRegistry)
         {
             var strength = 0f;
             var parties = kingdom?.WarPartyComponents;
@@ -330,7 +337,9 @@ namespace CalradiaStrategicMind.Strategic
             for (var index = 0; index < parties.Count; index++)
             {
                 var party = parties[index].MobileParty;
-                if (!IsFreeLordParty(party) || party.Position.Distance(anchorParty.Position) > ArmyDirectorSettings.MaxAttackTargetDistance)
+                if (!IsFreeLordParty(party)
+                    || ShouldRejectRecoveryPartyForArmySelection(party, recoveryRegistry)
+                    || party.Position.Distance(anchorParty.Position) > ArmyDirectorSettings.MaxAttackTargetDistance)
                 {
                     continue;
                 }
@@ -427,7 +436,7 @@ namespace CalradiaStrategicMind.Strategic
             return null;
         }
 
-        private List<MobileParty> FindFormationParties(Kingdom kingdom, Settlement target, MobileParty leader, CsmArmyAssignmentRegistry registry, CsmDefenseAssignmentRegistry defenseRegistry, CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies, CsmArmyLifecycleReport lifecycle, int tick, ArmyPartySelectionDiagnostics diagnostics)
+        private List<MobileParty> FindFormationParties(Kingdom kingdom, Settlement target, MobileParty leader, CsmArmyAssignmentRegistry registry, CsmDefenseAssignmentRegistry defenseRegistry, CsmLordPartyRecoveryRegistry recoveryRegistry, CsmRecentlyReleasedArmyRegistry recentlyReleasedArmies, CsmArmyLifecycleReport lifecycle, int tick, ArmyPartySelectionDiagnostics diagnostics)
         {
             var parties = new List<MobileParty>();
             if (kingdom == null || kingdom.WarPartyComponents == null || target == null)
@@ -446,6 +455,12 @@ namespace CalradiaStrategicMind.Strategic
                 if (!IsFreeLordParty(party))
                 {
                     RecordPartyReject(diagnostics, party, kingdom, "Invalid party");
+                    continue;
+                }
+
+                if (ShouldRejectRecoveryPartyForArmySelection(party, recoveryRegistry))
+                {
+                    RecordPartyReject(diagnostics, party, kingdom, "RecoveryAssigned");
                     continue;
                 }
 
@@ -504,6 +519,21 @@ namespace CalradiaStrategicMind.Strategic
                 && party.MemberRoster != null
                 && party.MemberRoster.TotalManCount > 0
                 && party.DefaultBehavior != AiBehavior.DefendSettlement;
+        }
+
+        private static bool ShouldRejectRecoveryPartyForArmySelection(MobileParty party, CsmLordPartyRecoveryRegistry recoveryRegistry)
+        {
+            if (!LordPartyRecoverySettings.EnableLordPartyRecoveryController
+                || !LordPartyRecoverySettings.RecoveryBlocksArmyDirectorSelection
+                || party == null
+                || recoveryRegistry == null
+                || !recoveryRegistry.HasActiveRecoveryForParty(party))
+            {
+                return false;
+            }
+
+            var evaluation = CsmLordPartyRecoveryEvaluator.Evaluate(party);
+            return evaluation.HealthyRatio < GetMinimumHealthyPartyRatioForOperations();
         }
 
         private static bool HasActiveAssignmentForLeaderArmy(MobileParty leaderParty, CsmArmyAssignmentRegistry registry)
@@ -616,6 +646,13 @@ namespace CalradiaStrategicMind.Strategic
             return counts.TryGetValue(key, out count) ? count : 0;
         }
 
+        private static float GetMinimumHealthyPartyRatioForOperations()
+        {
+            return LordPartyRecoverySettings.MinimumHealthyPartyRatioForOperations <= 0f
+                ? 0.65f
+                : LordPartyRecoverySettings.MinimumHealthyPartyRatioForOperations;
+        }
+
         private static ArmyFormationDiagnostics CreateFormationDiagnostics(int tick, string kingdomName, string status, string reason)
         {
             return new ArmyFormationDiagnostics
@@ -660,7 +697,7 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             CsmLogger.Info(
-                $"Observed CSM army formation summary: tick={diagnostics.Tick}, kingdom='{diagnostics.KingdomName}', evaluatedLeaders={diagnostics.EvaluatedLeaders}, validLeaders={diagnostics.ValidLeaders}, selectedLeader='{diagnostics.SelectedLeader}', target='{diagnostics.Target}', candidateParties={diagnostics.CandidateParties}, selectedParties={diagnostics.SelectedParties}, rejectedParties={diagnostics.RejectedParties}, rejectedTooFar={diagnostics.RejectedTooFar}, rejectedTooWeak={diagnostics.RejectedTooWeak}, rejectedDefenseAssigned={diagnostics.RejectedDefenseAssigned}, rejectedArmyAssigned={diagnostics.RejectedArmyAssigned}, expectedArmyStrength={diagnostics.ExpectedArmyStrength:0.00}, targetDefense={diagnostics.TargetDefense:0.00}, expectedStrengthRatio={diagnostics.ExpectedStrengthRatio:0.00}, commandApplied={diagnostics.CommandApplied}, status='{diagnostics.Status}', decisionReason='{diagnostics.Reason}', reason='Army formation diagnostic snapshot'");
+                $"Observed CSM army formation summary: tick={diagnostics.Tick}, kingdom='{diagnostics.KingdomName}', evaluatedLeaders={diagnostics.EvaluatedLeaders}, validLeaders={diagnostics.ValidLeaders}, selectedLeader='{diagnostics.SelectedLeader}', target='{diagnostics.Target}', candidateParties={diagnostics.CandidateParties}, selectedParties={diagnostics.SelectedParties}, rejectedParties={diagnostics.RejectedParties}, rejectedTooFar={diagnostics.RejectedTooFar}, rejectedTooWeak={diagnostics.RejectedTooWeak}, rejectedDefenseAssigned={diagnostics.RejectedDefenseAssigned}, rejectedArmyAssigned={diagnostics.RejectedArmyAssigned}, rejectedRecoveryAssigned={diagnostics.RejectedRecoveryAssigned}, rejectedTooWeakRecovering={diagnostics.RejectedTooWeakRecovering}, expectedArmyStrength={diagnostics.ExpectedArmyStrength:0.00}, targetDefense={diagnostics.TargetDefense:0.00}, expectedStrengthRatio={diagnostics.ExpectedStrengthRatio:0.00}, commandApplied={diagnostics.CommandApplied}, status='{diagnostics.Status}', decisionReason='{diagnostics.Reason}', reason='Army formation diagnostic snapshot'");
         }
 
         private static void LogLeaderSelection(ArmyFormationDiagnostics diagnostics)
@@ -671,7 +708,7 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             CsmLogger.Info(
-                $"Observed CSM army leader selection: tick={diagnostics.Tick}, kingdom='{diagnostics.KingdomName}', target='{diagnostics.Target}', evaluatedLeaders={diagnostics.EvaluatedLeaders}, validLeaders={diagnostics.ValidLeaders}, selectedLeader='{diagnostics.SelectedLeader}', selectedLeaderStrength={diagnostics.SelectedLeaderStrength:0.00}, selectedLeaderDistanceToTarget={diagnostics.SelectedLeaderDistanceToTarget:0.00}, rejectedTooWeak={diagnostics.RejectedLeaderTooWeak}, rejectedTooFar={diagnostics.RejectedLeaderTooFar}, rejectedAlreadyAssigned={diagnostics.RejectedAlreadyAssigned}, rejectedRecentlyReleased={diagnostics.RejectedRecentlyReleased}, reason='Army leader selection diagnostic'");
+                $"Observed CSM army leader selection: tick={diagnostics.Tick}, kingdom='{diagnostics.KingdomName}', target='{diagnostics.Target}', evaluatedLeaders={diagnostics.EvaluatedLeaders}, validLeaders={diagnostics.ValidLeaders}, selectedLeader='{diagnostics.SelectedLeader}', selectedLeaderStrength={diagnostics.SelectedLeaderStrength:0.00}, selectedLeaderDistanceToTarget={diagnostics.SelectedLeaderDistanceToTarget:0.00}, rejectedTooWeak={diagnostics.RejectedLeaderTooWeak}, rejectedTooFar={diagnostics.RejectedLeaderTooFar}, rejectedAlreadyAssigned={diagnostics.RejectedAlreadyAssigned}, rejectedRecentlyReleased={diagnostics.RejectedRecentlyReleased}, rejectedRecoveryAssigned={diagnostics.RejectedLeaderRecoveryAssigned}, rejectedTooWeakRecovering={diagnostics.RejectedLeaderTooWeakRecovering}, reason='Army leader selection diagnostic'");
         }
 
         private static void LogPartySelection(ArmyPartySelectionDiagnostics diagnostics)
@@ -682,7 +719,7 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             CsmLogger.Info(
-                $"Observed CSM army formation party selection: tick={diagnostics.Tick}, kingdom='{diagnostics.KingdomName}', leader='{diagnostics.LeaderName}', target='{diagnostics.TargetName}', selectedParties='{diagnostics.SelectedPartyNames}', selectedPartyCount={diagnostics.SelectedParties}, expectedCalledStrength={diagnostics.ExpectedCalledStrength:0.00}, candidateParties={diagnostics.CandidateParties}, rejectedParties={diagnostics.RejectedParties}, rejectedTooFarFromLeader={diagnostics.RejectedTooFarFromLeader}, rejectedTooFarFromTarget={diagnostics.RejectedTooFarFromTarget}, rejectedTooWeak={diagnostics.RejectedTooWeak}, rejectedAlreadyInArmy={diagnostics.RejectedAlreadyInArmy}, rejectedArmyAssigned={diagnostics.RejectedArmyAssigned}, rejectedDefenseAssigned={diagnostics.RejectedDefenseAssigned}, rejectedRecentlyReleased={diagnostics.RejectedRecentlyReleased}, rejectedInvalid={diagnostics.RejectedInvalid}, rejectedWrongKingdom={diagnostics.RejectedWrongKingdom}, reason='Selected party call list diagnostic'");
+                $"Observed CSM army formation party selection: tick={diagnostics.Tick}, kingdom='{diagnostics.KingdomName}', leader='{diagnostics.LeaderName}', target='{diagnostics.TargetName}', selectedParties='{diagnostics.SelectedPartyNames}', selectedPartyCount={diagnostics.SelectedParties}, expectedCalledStrength={diagnostics.ExpectedCalledStrength:0.00}, candidateParties={diagnostics.CandidateParties}, rejectedParties={diagnostics.RejectedParties}, rejectedTooFarFromLeader={diagnostics.RejectedTooFarFromLeader}, rejectedTooFarFromTarget={diagnostics.RejectedTooFarFromTarget}, rejectedTooWeak={diagnostics.RejectedTooWeak}, rejectedAlreadyInArmy={diagnostics.RejectedAlreadyInArmy}, rejectedArmyAssigned={diagnostics.RejectedArmyAssigned}, rejectedDefenseAssigned={diagnostics.RejectedDefenseAssigned}, rejectedRecoveryAssigned={diagnostics.RejectedRecoveryAssigned}, rejectedTooWeakRecovering={diagnostics.RejectedTooWeakRecovering}, rejectedRecentlyReleased={diagnostics.RejectedRecentlyReleased}, rejectedInvalid={diagnostics.RejectedInvalid}, rejectedWrongKingdom={diagnostics.RejectedWrongKingdom}, reason='Selected party call list diagnostic'");
         }
 
         private static void ApplyPartyDiagnostics(ArmyFormationDiagnostics target, ArmyPartySelectionDiagnostics source)
@@ -699,6 +736,8 @@ namespace CalradiaStrategicMind.Strategic
             target.RejectedTooWeak = source.RejectedTooWeak;
             target.RejectedDefenseAssigned = source.RejectedDefenseAssigned;
             target.RejectedArmyAssigned = source.RejectedArmyAssigned;
+            target.RejectedRecoveryAssigned = source.RejectedRecoveryAssigned;
+            target.RejectedTooWeakRecovering = source.RejectedTooWeakRecovering;
         }
 
         private static void RecordLeaderReject(ArmyFormationDiagnostics diagnostics, MobileParty party, string reason)
@@ -711,6 +750,13 @@ namespace CalradiaStrategicMind.Strategic
             if (party == null || party.MemberRoster == null || party.MemberRoster.TotalManCount <= 0 || party.Party == null || party.Party.EstimatedStrength <= 0f)
             {
                 diagnostics.RejectedLeaderTooWeak++;
+                return;
+            }
+
+            if (reason == "RecoveryAssigned")
+            {
+                diagnostics.RejectedLeaderRecoveryAssigned++;
+                diagnostics.RejectedLeaderTooWeakRecovering++;
                 return;
             }
 
@@ -746,6 +792,13 @@ namespace CalradiaStrategicMind.Strategic
             if (reason == "Recently released")
             {
                 diagnostics.RejectedRecentlyReleased++;
+                return;
+            }
+
+            if (reason == "RecoveryAssigned")
+            {
+                diagnostics.RejectedRecoveryAssigned++;
+                diagnostics.RejectedTooWeakRecovering++;
                 return;
             }
 
@@ -915,6 +968,8 @@ namespace CalradiaStrategicMind.Strategic
             public int RejectedLeaderInvalid { get; set; }
             public int RejectedAlreadyAssigned { get; set; }
             public int RejectedRecentlyReleased { get; set; }
+            public int RejectedLeaderRecoveryAssigned { get; set; }
+            public int RejectedLeaderTooWeakRecovering { get; set; }
             public string Target { get; set; }
             public int CandidateParties { get; set; }
             public int SelectedParties { get; set; }
@@ -923,6 +978,8 @@ namespace CalradiaStrategicMind.Strategic
             public int RejectedTooWeak { get; set; }
             public int RejectedDefenseAssigned { get; set; }
             public int RejectedArmyAssigned { get; set; }
+            public int RejectedRecoveryAssigned { get; set; }
+            public int RejectedTooWeakRecovering { get; set; }
             public float ExpectedArmyStrength { get; set; }
             public float TargetDefense { get; set; }
             public float ExpectedStrengthRatio { get; set; }
@@ -957,6 +1014,8 @@ namespace CalradiaStrategicMind.Strategic
             public int RejectedAlreadyInArmy { get; set; }
             public int RejectedArmyAssigned { get; set; }
             public int RejectedDefenseAssigned { get; set; }
+            public int RejectedRecoveryAssigned { get; set; }
+            public int RejectedTooWeakRecovering { get; set; }
             public int RejectedRecentlyReleased { get; set; }
             public int RejectedInvalid { get; set; }
             public int RejectedWrongKingdom { get; set; }

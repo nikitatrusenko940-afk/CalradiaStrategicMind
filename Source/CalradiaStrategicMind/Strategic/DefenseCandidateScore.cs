@@ -17,6 +17,7 @@ namespace CalradiaStrategicMind.Strategic
         public float IntentScore { get; set; }
         public float CriticalDefenseSpeedScore { get; set; }
         public bool IsWeakSupplemental { get; set; }
+        public bool IsRecoveringEmergencyDefender { get; set; }
         public bool IsReassignmentAllowed { get; set; }
         public string ReassignmentFromSettlement { get; set; }
         public string ReassignmentFromCoverageStatus { get; set; }
