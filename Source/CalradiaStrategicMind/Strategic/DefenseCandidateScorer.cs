@@ -32,6 +32,9 @@ namespace CalradiaStrategicMind.Strategic
             var rejectedWrongFaction = 0;
             var rejectedInvalid = 0;
             var rejectedAlreadyDefendingDifferentSettlement = 0;
+            var rejectedTooWeakHard = 0;
+            var acceptedWeakSupplemental = 0;
+            var acceptedReassignment = 0;
 
             if (candidates != null)
             {
@@ -52,7 +55,10 @@ namespace CalradiaStrategicMind.Strategic
                         ref rejectedTooWeak,
                         ref rejectedWrongFaction,
                         ref rejectedInvalid,
-                        ref rejectedAlreadyDefendingDifferentSettlement);
+                        ref rejectedAlreadyDefendingDifferentSettlement,
+                        ref rejectedTooWeakHard,
+                        ref acceptedWeakSupplemental,
+                        ref acceptedReassignment);
                 }
             }
 
@@ -73,7 +79,10 @@ namespace CalradiaStrategicMind.Strategic
                     ref rejectedTooWeak,
                     ref rejectedWrongFaction,
                     ref rejectedInvalid,
-                    ref rejectedAlreadyDefendingDifferentSettlement);
+                    ref rejectedAlreadyDefendingDifferentSettlement,
+                    ref rejectedTooWeakHard,
+                    ref acceptedWeakSupplemental,
+                    ref acceptedReassignment);
             }
 
             scoringSummary = new DefenseCandidateScoringSummary(
@@ -88,6 +97,9 @@ namespace CalradiaStrategicMind.Strategic
                 rejectedWrongFaction,
                 rejectedInvalid,
                 rejectedAlreadyDefendingDifferentSettlement,
+                rejectedTooWeakHard,
+                acceptedWeakSupplemental,
+                acceptedReassignment,
                 best == null ? "none" : best.CandidateName,
                 best == null ? 0f : best.Score,
                 best == null ? 0f : best.Distance,
@@ -111,7 +123,10 @@ namespace CalradiaStrategicMind.Strategic
             ref int rejectedTooWeak,
             ref int rejectedWrongFaction,
             ref int rejectedInvalid,
-            ref int rejectedAlreadyDefendingDifferentSettlement)
+            ref int rejectedAlreadyDefendingDifferentSettlement,
+            ref int rejectedTooWeakHard,
+            ref int acceptedWeakSupplemental,
+            ref int acceptedReassignment)
         {
             if (score == null)
             {
@@ -137,6 +152,7 @@ namespace CalradiaStrategicMind.Strategic
                 else if (score.RejectionCategory == "TooWeak")
                 {
                     rejectedTooWeak++;
+                    rejectedTooWeakHard++;
                 }
                 else if (score.RejectionCategory == "WrongFaction")
                 {
@@ -160,6 +176,16 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             validCandidates++;
+            if (score.IsWeakSupplemental)
+            {
+                acceptedWeakSupplemental++;
+            }
+
+            if (score.IsReassignmentAllowed)
+            {
+                acceptedReassignment++;
+            }
+
             if (best == null || score.Score > best.Score)
             {
                 best = score;
@@ -183,7 +209,10 @@ namespace CalradiaStrategicMind.Strategic
             if (!score.IsRejected)
             {
                 score.Score = CalculateScore(score, candidate.IsArmyLeader, candidate.CandidateCategory, candidate.IsWeak, party, settlement, actionTier);
-                score.Reason = "Selected best urgent defense candidate";
+                if (string.IsNullOrWhiteSpace(score.Reason) || NamesEqual(score.Reason, "Selected best urgent defense candidate"))
+                {
+                    score.Reason = "Selected best urgent defense candidate";
+                }
             }
 
             return score;
@@ -211,7 +240,7 @@ namespace CalradiaStrategicMind.Strategic
             };
 
             string rejectionCategory;
-            var rejectReason = GetRejectReason(settlement, party, defenseAssignments, armyAssignments, actionTier, out rejectionCategory);
+            var rejectReason = GetRejectReason(settlement, party, defenseAssignments, armyAssignments, actionTier, score, out rejectionCategory);
             if (!string.IsNullOrWhiteSpace(rejectReason))
             {
                 score.IsRejected = true;
@@ -231,6 +260,7 @@ namespace CalradiaStrategicMind.Strategic
             CsmDefenseAssignmentRegistry defenseAssignments,
             CsmArmyAssignmentRegistry armyAssignments,
             string actionTier,
+            DefenseCandidateScore score,
             out string rejectionCategory)
         {
             rejectionCategory = "Invalid";
@@ -255,17 +285,36 @@ namespace CalradiaStrategicMind.Strategic
 
                 if (conflict.HasActiveDefenseAssignment)
                 {
-                    rejectionCategory = "DefenseAssignment";
-                    return "Candidate already has active CSM defense assignment";
+                    DefenseReassignmentEvaluation reassignment;
+                    if (CanAllowDefenseReassignment(party, settlement, defenseAssignments, actionTier, out reassignment))
+                    {
+                        ApplyReassignment(score, reassignment);
+                    }
+                    else
+                    {
+                        rejectionCategory = "DefenseAssignment";
+                        score.ReassignmentFromSettlement = conflict.BlockingAssignmentTarget;
+                        return "Candidate already has active CSM defense assignment";
+                    }
                 }
-
-                if (conflict.IsAlreadyDefendingDifferentSettlement)
+                else if (conflict.IsAlreadyDefendingDifferentSettlement)
                 {
-                    rejectionCategory = "AlreadyDefendingDifferentSettlement";
-                    return "Candidate is already defending different settlement";
+                    DefenseReassignmentEvaluation reassignment;
+                    if (CanAllowDifferentTargetReassignment(party, settlement, actionTier, out reassignment))
+                    {
+                        ApplyReassignment(score, reassignment);
+                    }
+                    else
+                    {
+                        rejectionCategory = "AlreadyDefendingDifferentSettlement";
+                        score.ReassignmentFromSettlement = conflict.BlockingAssignmentTarget;
+                        return "Candidate is already defending different settlement";
+                    }
                 }
-
-                return "Candidate invalid";
+                else
+                {
+                    return "Candidate invalid";
+                }
             }
 
             if (settlement.MapFaction == null || party.MapFaction != settlement.MapFaction)
@@ -279,22 +328,30 @@ namespace CalradiaStrategicMind.Strategic
                 return "Candidate invalid";
             }
 
-            var maxDistance = IsCriticalDefense(actionTier)
-                ? DirectDefenseCommandSettings.MaxUrgentDefenseCommandDistance * 0.75f
+            var maxDistance = IsScarceLocalSiegeRelief(actionTier)
+                ? DirectDefenseCommandSettings.MaxUrgentDefenseCommandDistance * DefenseControllerSettings.ScarceLocalReliefExtraDistanceAllowance
+                : IsImmediateCriticalDefense(actionTier)
+                ? DirectDefenseCommandSettings.MaxUrgentDefenseCommandDistance * 1.5f
                 : DirectDefenseCommandSettings.MaxUrgentDefenseCommandDistance;
             if (party.Position.Distance(settlement.Position) > maxDistance)
             {
                 rejectionCategory = "TooFar";
-                return IsCriticalDefense(actionTier)
-                    ? "Candidate too far for critical defense"
-                    : "Candidate too far";
+                return "Candidate too far";
             }
 
-            var minimumStrength = IsCriticalDefense(actionTier) ? 60f : 80f;
+            var minimumStrength = IsActiveSiegeDefense(actionTier) ? DefenseControllerSettings.MinimumSupplementalDefenderStrength : 80f;
             if (party.Party == null || party.Party.EstimatedStrength < minimumStrength || party.MemberRoster == null || party.MemberRoster.TotalManCount <= 0)
             {
                 rejectionCategory = "TooWeak";
                 return "Candidate too weak for urgent defense";
+            }
+
+            if (DefenseControllerSettings.EnableSupplementalWeakDefenders
+                && IsActiveSiegeDefense(actionTier)
+                && (party.Party.EstimatedStrength < 80f || party.MemberRoster.TotalManCount < 40))
+            {
+                score.IsWeakSupplemental = true;
+                score.Reason = "Weak but useful supplemental defender accepted for active siege";
             }
 
             rejectionCategory = "None";
@@ -316,9 +373,16 @@ namespace CalradiaStrategicMind.Strategic
             }
 
             var value = 0f;
-            var critical = IsCriticalDefense(actionTier);
+            var immediateCritical = IsImmediateCriticalDefense(actionTier);
+            var lowActiveSiege = IsLowActiveSiegeDefense(actionTier);
+            var adaptiveActiveSiege = IsAdaptiveActiveSiegeDefense(actionTier);
+            var scarceLocalRelief = IsScarceLocalSiegeRelief(actionTier);
+            var critical = immediateCritical || IsCriticalDefense(actionTier);
+            var activeSiegeDefense = critical || lowActiveSiege || adaptiveActiveSiege || scarceLocalRelief;
             score.StrengthScore = score.Strength * 0.15f + score.HealthyStrength * 0.35f;
-            score.DistanceScore = critical
+            score.DistanceScore = immediateCritical
+                ? (DirectDefenseCommandSettings.MaxUrgentDefenseCommandDistance - score.Distance) * 2.4f
+                : critical
                 ? (DirectDefenseCommandSettings.MaxUrgentDefenseCommandDistance - score.Distance) * 1.2f
                 : (DirectDefenseCommandSettings.MaxUrgentDefenseCommandDistance - score.Distance) * 0.55f;
             if (score.DistanceScore < 0f)
@@ -340,7 +404,7 @@ namespace CalradiaStrategicMind.Strategic
 
             if (score.Distance <= 40f)
             {
-                score.IntentScore += critical ? 90f : 60f;
+                score.IntentScore += immediateCritical ? 140f : critical ? 90f : lowActiveSiege || adaptiveActiveSiege || scarceLocalRelief ? 75f : 60f;
             }
 
             if (isArmyLeader && DirectDefenseCommandSettings.AllowArmyPartyDefenseCommands)
@@ -360,7 +424,14 @@ namespace CalradiaStrategicMind.Strategic
 
             if (isWeak || score.Strength < 100f)
             {
-                score.IntentScore -= critical && score.Distance <= 35f && score.Strength >= 60f ? 35f : 100f;
+                score.IntentScore -= activeSiegeDefense && score.Distance <= 35f && score.Strength >= DefenseControllerSettings.MinimumSupplementalDefenderStrength
+                    ? DefenseControllerSettings.WeakDefenderScorePenalty * 0.45f
+                    : DefenseControllerSettings.WeakDefenderScorePenalty;
+            }
+
+            if (score.IsWeakSupplemental)
+            {
+                score.IntentScore -= DefenseControllerSettings.WeakDefenderScorePenalty;
             }
 
             return value + score.IntentScore;
@@ -433,6 +504,154 @@ namespace CalradiaStrategicMind.Strategic
             return NamesEqual(actionTier, "CriticalDefense");
         }
 
+        private static bool IsLowActiveSiegeDefense(string actionTier)
+        {
+            return NamesEqual(actionTier, "LowActiveSiegeDefense");
+        }
+
+        private static bool IsImmediateCriticalDefense(string actionTier)
+        {
+            return NamesEqual(actionTier, "ImmediateCriticalDefense");
+        }
+
+        private static bool IsAdaptiveActiveSiegeDefense(string actionTier)
+        {
+            return NamesEqual(actionTier, "AdaptiveActiveSiegeDefense");
+        }
+
+        private static bool IsScarceLocalSiegeRelief(string actionTier)
+        {
+            return NamesEqual(actionTier, "ScarceLocalSiegeRelief");
+        }
+
+        private static bool IsActiveSiegeDefense(string actionTier)
+        {
+            return IsImmediateCriticalDefense(actionTier)
+                || IsCriticalDefense(actionTier)
+                || IsLowActiveSiegeDefense(actionTier)
+                || IsAdaptiveActiveSiegeDefense(actionTier)
+                || IsScarceLocalSiegeRelief(actionTier);
+        }
+
+        private static bool CanAllowDefenseReassignment(
+            MobileParty party,
+            Settlement newTarget,
+            CsmDefenseAssignmentRegistry defenseAssignments,
+            string actionTier,
+            out DefenseReassignmentEvaluation evaluation)
+        {
+            evaluation = DefenseReassignmentEvaluation.CreateBlocked("unknown", "Unknown");
+            if (!IsActiveSiegeDefense(actionTier) || party == null || newTarget == null || defenseAssignments == null)
+            {
+                return false;
+            }
+
+            var assignment = defenseAssignments.GetActiveAssignmentForParty(GetPartyId(party), GetPartyName(party));
+            if (assignment == null || NamesEqual(assignment.SettlementName, GetSettlementName(newTarget)))
+            {
+                return false;
+            }
+
+            var oldTarget = FindSettlementByIdOrName(assignment.SettlementId, assignment.SettlementName);
+            return CanAllowPreviousDefenseTargetRelease(oldTarget, assignment, true, out evaluation);
+        }
+
+        private static bool CanAllowDifferentTargetReassignment(
+            MobileParty party,
+            Settlement newTarget,
+            string actionTier,
+            out DefenseReassignmentEvaluation evaluation)
+        {
+            evaluation = DefenseReassignmentEvaluation.CreateBlocked("unknown", "Unknown");
+            if (!IsActiveSiegeDefense(actionTier) || party == null || newTarget == null || party.TargetSettlement == null)
+            {
+                return false;
+            }
+
+            return CanAllowPreviousDefenseTargetRelease(party.TargetSettlement, null, false, out evaluation);
+        }
+
+        private static bool CanAllowPreviousDefenseTargetRelease(
+            Settlement oldTarget,
+            CsmDefenseAssignment assignment,
+            bool hasOldAssignment,
+            out DefenseReassignmentEvaluation evaluation)
+        {
+            var oldSettlementName = assignment == null ? GetSettlementName(oldTarget) : assignment.SettlementName;
+            if (oldTarget == null)
+            {
+                evaluation = DefenseReassignmentEvaluation.CreateAllowed(oldSettlementName, "Invalid");
+                return true;
+            }
+
+            if (hasOldAssignment
+                && assignment != null
+                && assignment.IneffectiveTicks >= DefenseAssignmentSettings.DefenseAssignmentIneffectiveTicksBeforeReplacement)
+            {
+                evaluation = DefenseReassignmentEvaluation.CreateAllowed(oldSettlementName, "Ineffective");
+                return true;
+            }
+
+            if (hasOldAssignment && assignment != null && assignment.Status != null && NamesEqual(assignment.Status, "Expired"))
+            {
+                evaluation = DefenseReassignmentEvaluation.CreateAllowed(oldSettlementName, "Ineffective");
+                return true;
+            }
+
+            if (oldTarget.SiegeEvent == null)
+            {
+                var status = hasOldAssignment ? "Enough" : "Monitor";
+                evaluation = DefenseReassignmentEvaluation.CreateAllowed(oldSettlementName, status);
+                return false;
+            }
+
+            evaluation = DefenseReassignmentEvaluation.CreateBlocked(oldSettlementName, "ActiveSiege");
+            return false;
+        }
+
+        private static void ApplyReassignment(DefenseCandidateScore score, DefenseReassignmentEvaluation evaluation)
+        {
+            if (score == null || evaluation == null)
+            {
+                return;
+            }
+
+            score.IsReassignmentAllowed = true;
+            score.ReassignmentFromSettlement = evaluation.FromSettlement;
+            score.ReassignmentFromCoverageStatus = evaluation.FromCoverageStatus;
+            score.Reason = "Candidate reassignment allowed because previous defense target is covered";
+        }
+
+        private static Settlement FindSettlementByIdOrName(string settlementId, string settlementName)
+        {
+            var settlements = Settlement.All;
+            if (settlements == null)
+            {
+                return null;
+            }
+
+            for (var index = 0; index < settlements.Count; index++)
+            {
+                var settlement = settlements[index];
+                if (settlement == null)
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(settlementId) && NamesEqual(settlement.StringId, settlementId))
+                {
+                    return settlement;
+                }
+
+                if (settlement.Name != null && NamesEqual(settlement.Name.ToString(), settlementName))
+                {
+                    return settlement;
+                }
+            }
+
+            return null;
+        }
+
         private static MobileParty FindPartyByName(string partyName)
         {
             var parties = MobileParty.All;
@@ -486,6 +705,32 @@ namespace CalradiaStrategicMind.Strategic
                 left == null ? string.Empty : left.Trim(),
                 right == null ? string.Empty : right.Trim(),
                 StringComparison.OrdinalIgnoreCase);
+        }
+
+        private class DefenseReassignmentEvaluation
+        {
+            private DefenseReassignmentEvaluation(bool allowed, string fromSettlement, string fromCoverageStatus)
+            {
+                Allowed = allowed;
+                FromSettlement = string.IsNullOrWhiteSpace(fromSettlement) ? "unknown" : fromSettlement;
+                FromCoverageStatus = string.IsNullOrWhiteSpace(fromCoverageStatus) ? "Unknown" : fromCoverageStatus;
+            }
+
+            public bool Allowed { get; private set; }
+
+            public string FromSettlement { get; private set; }
+
+            public string FromCoverageStatus { get; private set; }
+
+            public static DefenseReassignmentEvaluation CreateAllowed(string fromSettlement, string fromCoverageStatus)
+            {
+                return new DefenseReassignmentEvaluation(true, fromSettlement, fromCoverageStatus);
+            }
+
+            public static DefenseReassignmentEvaluation CreateBlocked(string fromSettlement, string fromCoverageStatus)
+            {
+                return new DefenseReassignmentEvaluation(false, fromSettlement, fromCoverageStatus);
+            }
         }
     }
 }

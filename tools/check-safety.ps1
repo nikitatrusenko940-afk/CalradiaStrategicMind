@@ -1,7 +1,8 @@
 param(
     [switch]$AllowExperimentalAi,
     [switch]$AllowDirectDefenseCommand,
-    [switch]$AllowArmyDirector
+    [switch]$AllowArmyDirector,
+    [switch]$AllowHarmonyAiPatch
 )
 
 $ErrorActionPreference = "Stop"
@@ -79,6 +80,24 @@ $armyObjectiveSyncAllowedPatterns = @(
     "ArmyType ="
 )
 
+$harmonyAiPatchAllowedPaths = @(
+    ".\Source\CalradiaStrategicMind\SubModule.cs",
+    ".\Source\CalradiaStrategicMind\Behaviors\StrategicObservationBehavior.cs",
+    ".\Source\CalradiaStrategicMind\Settings\DefenseControllerSettings.cs",
+    ".\Source\CalradiaStrategicMind\Harmony\CsmHarmonyBootstrap.cs",
+    ".\Source\CalradiaStrategicMind\Harmony\CsmAiPartyThinkBehaviorPatch.cs",
+    ".\Source\CalradiaStrategicMind\Harmony\CsmMovementSetterDiagnosticsPatch.cs",
+    ".\Source\CalradiaStrategicMind\Harmony\CsmControlledPartyResolver.cs"
+)
+$harmonyAiPatchAllowedPatterns = @(
+    "Harmony",
+    "Reflection",
+    "SetMoveDefendSettlement",
+    "SetMoveGoToSettlement",
+    "SetMoveBesiegeSettlement",
+    "SetMoveRaidSettlement"
+)
+
 function Test-IsAllowedFinding {
     param(
         [string]$Path,
@@ -115,6 +134,12 @@ function Test-IsAllowedFinding {
     if ($AllowArmyDirector -and
         $armyObjectiveSyncAllowedPaths -contains $Path -and
         $armyObjectiveSyncAllowedPatterns -contains $Pattern) {
+        return $true
+    }
+
+    if ($AllowHarmonyAiPatch -and
+        $harmonyAiPatchAllowedPaths -contains $Path -and
+        $harmonyAiPatchAllowedPatterns -contains $Pattern) {
         return $true
     }
 

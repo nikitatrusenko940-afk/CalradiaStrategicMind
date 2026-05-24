@@ -28,6 +28,11 @@ namespace CalradiaStrategicMind.Strategic
                 assignment.CommandCount++;
                 assignment.Reason = reason;
                 assignment.Status = "Reasserted";
+                if (assignment.AuthorityHardLockStartTick < 0)
+                {
+                    assignment.AuthorityHardLockStartTick = observationTick;
+                }
+
                 return assignment;
             }
 
@@ -40,8 +45,15 @@ namespace CalradiaStrategicMind.Strategic
                 observationTick,
                 1,
                 0,
+                0,
+                0,
+                0f,
                 -1f,
                 observationTick,
+                -1,
+                0,
+                false,
+                -1,
                 reason,
                 "Created");
             _activeAssignments[key] = assignment;
@@ -211,8 +223,15 @@ namespace CalradiaStrategicMind.Strategic
             int lastCommandTick,
             int commandCount,
             int reassertionCount,
+            int stalledTicks,
+            int ineffectiveTicks,
+            float lastEffectiveStrengthContribution,
             float lastDistanceToSettlement,
             int lastProgressTick,
+            int postArrivalCommitmentStartTick,
+            int stableThreatTicks,
+            bool arrivedOrNear,
+            int lastHarmonyDefenseLockTick,
             string reason,
             string status)
         {
@@ -224,8 +243,21 @@ namespace CalradiaStrategicMind.Strategic
             LastCommandTick = lastCommandTick;
             CommandCount = commandCount;
             ReassertionCount = reassertionCount;
+            StalledTicks = stalledTicks;
+            IneffectiveTicks = ineffectiveTicks;
+            LastEffectiveStrengthContribution = lastEffectiveStrengthContribution;
             LastDistanceToSettlement = lastDistanceToSettlement;
             LastProgressTick = lastProgressTick;
+            PostArrivalCommitmentStartTick = postArrivalCommitmentStartTick;
+            StableThreatTicks = stableThreatTicks;
+            ArrivedOrNear = arrivedOrNear;
+            LastHarmonyDefenseLockTick = lastHarmonyDefenseLockTick;
+            InvalidPartyTicks = 0;
+            InArmyTicks = 0;
+            InBattleTicks = 0;
+            AuthorityHardLockStartTick = commandStartTick;
+            LastAuthorityCounterTick = -1;
+            LastReleaseBlockedReason = string.Empty;
             Reason = reason;
             Status = status;
             OwnerKingdomName = "unknown";
@@ -247,9 +279,35 @@ namespace CalradiaStrategicMind.Strategic
 
         public int ReassertionCount { get; set; }
 
+        public int StalledTicks { get; set; }
+
+        public int IneffectiveTicks { get; set; }
+
+        public float LastEffectiveStrengthContribution { get; set; }
+
         public float LastDistanceToSettlement { get; set; }
 
         public int LastProgressTick { get; set; }
+
+        public int PostArrivalCommitmentStartTick { get; set; }
+
+        public int StableThreatTicks { get; set; }
+
+        public bool ArrivedOrNear { get; set; }
+
+        public int LastHarmonyDefenseLockTick { get; set; }
+
+        public int InvalidPartyTicks { get; set; }
+
+        public int InArmyTicks { get; set; }
+
+        public int InBattleTicks { get; set; }
+
+        public int AuthorityHardLockStartTick { get; set; }
+
+        public int LastAuthorityCounterTick { get; set; }
+
+        public string LastReleaseBlockedReason { get; set; }
 
         public string OwnerKingdomName { get; set; }
 
@@ -289,6 +347,25 @@ namespace CalradiaStrategicMind.Strategic
         public string Reason { get; private set; }
     }
 
+    public struct CsmDefensePostEnforcementReport
+    {
+        public CsmDefensePostEnforcementReport(int tick, int reasserted, int stalled, string reason)
+        {
+            Tick = tick;
+            Reasserted = reasserted;
+            Stalled = stalled;
+            Reason = reason;
+        }
+
+        public int Tick { get; private set; }
+
+        public int Reasserted { get; private set; }
+
+        public int Stalled { get; private set; }
+
+        public string Reason { get; private set; }
+    }
+
     public struct CsmDefenseAssignmentLifecycleSummary
     {
         public CsmDefenseAssignmentLifecycleSummary(
@@ -301,7 +378,21 @@ namespace CalradiaStrategicMind.Strategic
             int invalid,
             int progressExpired,
             int duplicateAssignmentBlocked,
+            int reinforcementAssignmentsCreated,
+            int reinforcementBlocked,
+            int movementReasserted,
+            int movementStalled,
+            int movementInvalid,
+            int effectiveAssignments,
+            int ineffectiveAssignments,
+            int replacementAssignmentsCreated,
+            int deescalationDelayed,
+            int postEnforcementReasserted,
             int reassertedAssignments,
+            int activeSiegeReasserted,
+            int movementFailed,
+            int adaptiveGlobalCapBlocked,
+            int kingdomCapBlocked,
             string reason)
         {
             ObservationTick = observationTick;
@@ -313,7 +404,21 @@ namespace CalradiaStrategicMind.Strategic
             Invalid = invalid;
             ProgressExpired = progressExpired;
             DuplicateAssignmentBlocked = duplicateAssignmentBlocked;
+            ReinforcementAssignmentsCreated = reinforcementAssignmentsCreated;
+            ReinforcementBlocked = reinforcementBlocked;
+            MovementReasserted = movementReasserted;
+            MovementStalled = movementStalled;
+            MovementInvalid = movementInvalid;
+            EffectiveAssignments = effectiveAssignments;
+            IneffectiveAssignments = ineffectiveAssignments;
+            ReplacementAssignmentsCreated = replacementAssignmentsCreated;
+            DeescalationDelayed = deescalationDelayed;
+            PostEnforcementReasserted = postEnforcementReasserted;
             ReassertedAssignments = reassertedAssignments;
+            ActiveSiegeReasserted = activeSiegeReasserted;
+            MovementFailed = movementFailed;
+            AdaptiveGlobalCapBlocked = adaptiveGlobalCapBlocked;
+            KingdomCapBlocked = kingdomCapBlocked;
             Reason = reason;
         }
 
@@ -335,7 +440,35 @@ namespace CalradiaStrategicMind.Strategic
 
         public int DuplicateAssignmentBlocked { get; private set; }
 
+        public int ReinforcementAssignmentsCreated { get; private set; }
+
+        public int ReinforcementBlocked { get; private set; }
+
+        public int MovementReasserted { get; private set; }
+
+        public int MovementStalled { get; private set; }
+
+        public int MovementInvalid { get; private set; }
+
+        public int EffectiveAssignments { get; private set; }
+
+        public int IneffectiveAssignments { get; private set; }
+
+        public int ReplacementAssignmentsCreated { get; private set; }
+
+        public int DeescalationDelayed { get; private set; }
+
+        public int PostEnforcementReasserted { get; private set; }
+
         public int ReassertedAssignments { get; private set; }
+
+        public int ActiveSiegeReasserted { get; private set; }
+
+        public int MovementFailed { get; private set; }
+
+        public int AdaptiveGlobalCapBlocked { get; private set; }
+
+        public int KingdomCapBlocked { get; private set; }
 
         public string Reason { get; private set; }
     }
