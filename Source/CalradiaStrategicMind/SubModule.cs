@@ -1,4 +1,5 @@
 using CalradiaStrategicMind.Behaviors;
+using CalradiaStrategicMind.Harmony;
 using CalradiaStrategicMind.Logging;
 using CalradiaStrategicMind.Utils;
 using TaleWorlds.CampaignSystem;
@@ -16,6 +17,7 @@ namespace CalradiaStrategicMind
             SafeExecutor.Run("SubModule load", () =>
             {
                 CsmLogger.Info("CalradiaStrategicMind loaded");
+                CsmHarmonyBootstrap.Apply();
             });
         }
 

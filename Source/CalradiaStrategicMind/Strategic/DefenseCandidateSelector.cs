@@ -27,17 +27,29 @@ namespace CalradiaStrategicMind.Strategic
         {
             return SafeExecutor.Run(
                 "Find defense candidates",
-                () => FindDefenseCandidatesCore(settlement, maxCandidates),
+                () => FindDefenseCandidatesCore(settlement, maxCandidates, 1f),
                 new List<DefenseCandidateReport>());
         }
 
-        private List<DefenseCandidateReport> FindDefenseCandidatesCore(Settlement settlement, int maxCandidates)
+        public List<DefenseCandidateReport> FindDefenseCandidates(Settlement settlement, int maxCandidates, float distanceAllowanceMultiplier)
+        {
+            return SafeExecutor.Run(
+                "Find defense candidates",
+                () => FindDefenseCandidatesCore(settlement, maxCandidates, distanceAllowanceMultiplier),
+                new List<DefenseCandidateReport>());
+        }
+
+        private List<DefenseCandidateReport> FindDefenseCandidatesCore(Settlement settlement, int maxCandidates, float distanceAllowanceMultiplier)
         {
             var reports = new List<DefenseCandidateReport>();
             if (settlement == null)
             {
                 return reports;
             }
+
+            var distanceMultiplier = distanceAllowanceMultiplier < 1f ? 1f : distanceAllowanceMultiplier;
+            var searchRadius = DefenseCandidateSearchRadius * distanceMultiplier;
+            var tooFarDistance = TooFarDistance * distanceMultiplier;
 
             var parties = MobileParty.All;
             if (parties == null)
@@ -62,7 +74,7 @@ namespace CalradiaStrategicMind.Strategic
                 }
 
                 var distance = settlementPosition.Distance(party.GetPosition2D);
-                if (distance > DefenseCandidateSearchRadius)
+                if (distance > searchRadius)
                 {
                     continue;
                 }
@@ -79,7 +91,7 @@ namespace CalradiaStrategicMind.Strategic
 
                 var woundedRatio = GetWoundedRatio(strengthReport.TroopCount, strengthReport.WoundedCount);
                 var isWeak = healthyTroops < MinimumHealthyTroops;
-                var isTooFar = distance > TooFarDistance;
+                var isTooFar = distance > tooFarDistance;
                 var isBusy = IsBusy(party);
                 var availabilityScore = GetAvailabilityScore(healthyTroops, woundedRatio, isTooFar, isBusy, isArmyMember, isArmyLeader);
                 var suitabilityScore = GetSuitabilityScore(
@@ -88,7 +100,8 @@ namespace CalradiaStrategicMind.Strategic
                     category,
                     isArmyLeader,
                     isArmyMember,
-                    availabilityScore);
+                    availabilityScore,
+                    searchRadius);
                 var isSuitable = suitabilityScore >= MinimumSuitableScore
                     && !armyLeaderNearby
                     && !isTooFar
@@ -242,9 +255,10 @@ namespace CalradiaStrategicMind.Strategic
             PartyObservationCategory category,
             bool isArmyLeader,
             bool isArmyMember,
-            float availabilityScore)
+            float availabilityScore,
+            float searchRadius)
         {
-            var distanceScore = DefenseCandidateSearchRadius - distance;
+            var distanceScore = searchRadius - distance;
             if (distanceScore < 0f)
             {
                 distanceScore = 0f;

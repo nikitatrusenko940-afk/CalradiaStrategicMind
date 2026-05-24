@@ -16,6 +16,10 @@ namespace CalradiaStrategicMind.Strategic
         public float AvailabilityScore { get; set; }
         public float IntentScore { get; set; }
         public float CriticalDefenseSpeedScore { get; set; }
+        public bool IsWeakSupplemental { get; set; }
+        public bool IsReassignmentAllowed { get; set; }
+        public string ReassignmentFromSettlement { get; set; }
+        public string ReassignmentFromCoverageStatus { get; set; }
         public bool IsRejected { get; set; }
         public string RejectionCategory { get; set; }
         public string Reason { get; set; }
@@ -35,6 +39,9 @@ namespace CalradiaStrategicMind.Strategic
             int rejectedWrongFaction,
             int rejectedInvalid,
             int rejectedAlreadyDefendingDifferentSettlement,
+            int rejectedTooWeakHard,
+            int acceptedWeakSupplemental,
+            int acceptedReassignment,
             string selectedCandidate,
             float selectedCandidateScore,
             float selectedCandidateDistance,
@@ -52,6 +59,9 @@ namespace CalradiaStrategicMind.Strategic
             RejectedWrongFaction = rejectedWrongFaction;
             RejectedInvalid = rejectedInvalid;
             RejectedAlreadyDefendingDifferentSettlement = rejectedAlreadyDefendingDifferentSettlement;
+            RejectedTooWeakHard = rejectedTooWeakHard;
+            AcceptedWeakSupplemental = acceptedWeakSupplemental;
+            AcceptedReassignment = acceptedReassignment;
             SelectedCandidate = selectedCandidate;
             SelectedCandidateScore = selectedCandidateScore;
             SelectedCandidateDistance = selectedCandidateDistance;
@@ -80,6 +90,12 @@ namespace CalradiaStrategicMind.Strategic
         public int RejectedInvalid { get; private set; }
 
         public int RejectedAlreadyDefendingDifferentSettlement { get; private set; }
+
+        public int RejectedTooWeakHard { get; private set; }
+
+        public int AcceptedWeakSupplemental { get; private set; }
+
+        public int AcceptedReassignment { get; private set; }
 
         public string SelectedCandidate { get; private set; }
 

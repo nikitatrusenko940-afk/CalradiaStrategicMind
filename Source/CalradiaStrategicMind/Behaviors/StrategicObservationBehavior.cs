@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using CalradiaStrategicMind.Harmony;
 using CalradiaStrategicMind.Logging;
 using CalradiaStrategicMind.Settings;
 using CalradiaStrategicMind.Strategic;
@@ -57,6 +58,7 @@ namespace CalradiaStrategicMind.Behaviors
             _defenseCommandInterface = new DefenseCommandInterface();
             _directDefenseCommandController = new DirectDefenseCommandController();
             _armyDirector = new CsmArmyDirector();
+            CsmControlledPartyResolver.Register(_directDefenseCommandController.AssignmentRegistry, _armyDirector.AssignmentRegistry);
             _strategicTaskDisciplineController = new CsmStrategicTaskDisciplineController();
             _defenseScoreSimulator = new DefenseScoreSimulator();
             _defenseScoreSimulationSummaryBuilder = new DefenseScoreSimulationSummaryBuilder();
@@ -304,6 +306,8 @@ namespace CalradiaStrategicMind.Behaviors
             }
 
             ObserveArmies(defenseSnapshots);
+            var postEnforcementReport = _directDefenseCommandController.PostDirectorEnforceAssignments(defenseSnapshots, _armyDirector == null ? null : _armyDirector.AssignmentRegistry, _observationTick);
+            LogDefensePostEnforcement(postEnforcementReport);
             LogDefenseAssignmentLifecycle(_directDefenseCommandController.GetAssignmentLifecycleSummary(_observationTick));
         }
 
@@ -382,7 +386,7 @@ namespace CalradiaStrategicMind.Behaviors
                 LogDefenseControllerSafety(defenseControllerSafetyReport);
                 if (DefenseAssignmentSettings.EnableDefenseAssignments)
                 {
-                    var assignmentReports = _directDefenseCommandController.ProcessAssignments(snapshot, _observationTick);
+                    var assignmentReports = _directDefenseCommandController.ProcessAssignments(snapshot, _observationTick, _armyDirector == null ? null : _armyDirector.AssignmentRegistry);
                     LogDefenseAssignmentReports(assignmentReports);
                 }
 
@@ -824,7 +828,13 @@ namespace CalradiaStrategicMind.Behaviors
         private static void LogDefenseAssignmentLifecycle(CsmDefenseAssignmentLifecycleSummary summary)
         {
             CsmLogger.Info(
-                $"Observed defense assignment lifecycle: tick={summary.ObservationTick}, activeAssignments={summary.ActiveAssignments}, created={summary.Created}, completed={summary.Completed}, deescalated={summary.Deescalated}, expired={summary.Expired}, invalid={summary.Invalid}, progressExpired={summary.ProgressExpired}, duplicateAssignmentBlocked={summary.DuplicateAssignmentBlocked}, reassertedAssignments={summary.ReassertedAssignments}, reason='{summary.Reason}'");
+                $"Observed defense assignment lifecycle: tick={summary.ObservationTick}, activeAssignments={summary.ActiveAssignments}, created={summary.Created}, completed={summary.Completed}, deescalated={summary.Deescalated}, expired={summary.Expired}, invalid={summary.Invalid}, progressExpired={summary.ProgressExpired}, duplicateAssignmentBlocked={summary.DuplicateAssignmentBlocked}, reinforcementAssignmentsCreated={summary.ReinforcementAssignmentsCreated}, reinforcementBlocked={summary.ReinforcementBlocked}, movementReasserted={summary.MovementReasserted}, movementStalled={summary.MovementStalled}, movementInvalid={summary.MovementInvalid}, effectiveAssignments={summary.EffectiveAssignments}, ineffectiveAssignments={summary.IneffectiveAssignments}, replacementAssignmentsCreated={summary.ReplacementAssignmentsCreated}, deescalationDelayed={summary.DeescalationDelayed}, postEnforcementReasserted={summary.PostEnforcementReasserted}, reassertedAssignments={summary.ReassertedAssignments}, activeSiegeReasserted={summary.ActiveSiegeReasserted}, movementFailed={summary.MovementFailed}, adaptiveGlobalCapBlocked={summary.AdaptiveGlobalCapBlocked}, kingdomCapBlocked={summary.KingdomCapBlocked}, reason='{summary.Reason}'");
+        }
+
+        private static void LogDefensePostEnforcement(CsmDefensePostEnforcementReport report)
+        {
+            CsmLogger.Info(
+                $"Observed defense assignment post-enforcement: tick={report.Tick}, reasserted={report.Reasserted}, stalled={report.Stalled}, reason='{report.Reason}'");
         }
 
         private DryRunDefenseDecisionStabilityReport GetDryRunStabilityReport(DryRunDefenseDecision decision)
